@@ -1,0 +1,102 @@
+<?xml version="1.0" encoding="utf-8"?>
+<robot xmlns:xacro="http://www.ros.org/wiki/xacro" name="panda_hand">
+
+    <xacro:macro name="panda_hand" params="connected_to:='' ns:='' rpy:='0 0 0' xyz:='0 0 0' ">
+        <xacro:unless value="${connected_to == ''}">
+            <joint name="${ns}_hand_joint" type="fixed">
+                <parent link="${connected_to}" />
+                <child link="${ns}_hand" />
+                <origin xyz="${xyz}" rpy="${rpy}" />
+            </joint>
+        </xacro:unless>
+
+        <link name="${ns}_hand">
+            <visual>
+                <geometry>
+                    <mesh filename="package://arm_description/meshes/visual/hand.dae" />
+                </geometry>
+            </visual>
+            <collision>
+                <geometry>
+                    <mesh filename="package://arm_description/meshes/collision/hand.stl" />
+                </geometry>
+            </collision>
+            <inertial>
+                <origin xyz="0 0 0" rpy="0 0 0" />
+                <mass value="0.68" />
+                <inertia ixx="0.1" ixy="0.0" ixz="0.0" iyy="0.1" iyz="0.0" izz="0.1" />
+            </inertial>
+        </link>
+        <link name="${ns}_finger">
+            <visual name='back'>
+                <origin xyz="-0.02 0 0.02" rpy="0 0 0" />
+                <geometry>
+                    <box size="0.01 0.04 0.04" />
+                </geometry>
+            </visual>
+
+            <visual name='left'>
+                <origin xyz="0 -0.02 0.02" rpy="0 0 0" />
+                <geometry>
+                    <box size="0.04 0.01 0.04" />
+                </geometry>
+            </visual>
+
+            <visual name='right'>
+                <origin xyz="0 0.02 0.02" rpy="0 0 0" />
+                <geometry>
+                    <box size="0.04 0.01 0.04" />
+                </geometry>
+            </visual>
+
+            <visual name='front'>
+                <origin xyz="0.02 0 0.02" rpy="0 0 0" />
+                <geometry>
+                    <box size="0.01 0.04 0.04" />
+                </geometry>
+            </visual>
+
+
+            <collision name='back'>
+                <origin xyz="-0.02 0 0.02" rpy="0 0 0" />
+                <geometry>
+                    <box size="0.01 0.04 0.04" />
+                </geometry>
+            </collision>
+
+            <collision name='left'>
+                <origin xyz="0 -0.02 0.02" rpy="0 0 0" />
+                <geometry>
+                    <box size="0.04 0.01 0.04" />
+                </geometry>
+            </collision>
+
+            <collision name='right'>
+                <origin xyz="0 0.02 0.02" rpy="0 0 0" />
+                <geometry>
+                    <box size="0.04 0.01 0.04" />
+                </geometry>
+            </collision>
+
+            <collision name='front'>
+                <origin xyz="0.02 0 0.02" rpy="0 0 0" />
+                <geometry>
+                    <box size="0.01 0.04 0.04" />
+                </geometry>
+            </collision>
+
+            <inertial>
+                <origin xyz="0 0 0" rpy="0 0 0" />
+                <mass value="0.02" />
+                <inertia ixx="0.000001667" ixy="0.0" ixz="0.0" iyy="0.000001667" iyz="0.0"
+                    izz="0.000000667" />
+            </inertial>
+        </link>
+
+        <joint name="${ns}_finger_joint" type="fixed">
+            <parent link="${ns}_hand" />
+            <child link="${ns}_finger" />
+            <origin xyz="0 0 0.0584" rpy="0 0 0" />
+        </joint>
+    </xacro:macro>
+</robot>

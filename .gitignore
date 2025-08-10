@@ -1,0 +1,14 @@
+build/
+install/
+log/
+
+.vscode/
+__pycache__/
+*.py[cod]
+
+CMakeLists.txt.user
+*.cmake.user
+
+*.swp
+*.swo
+.DS_Store
