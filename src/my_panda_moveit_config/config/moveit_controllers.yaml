@@ -5,7 +5,7 @@ moveit_controller_manager: moveit_simple_controller_manager/MoveItSimpleControll
 moveit_simple_controller_manager:
   controller_names:
     - arm_controller
-    - hand_controller
+    - gripper_controller
 
   arm_controller:
     type: FollowJointTrajectory
@@ -17,7 +17,7 @@ moveit_simple_controller_manager:
       - panda_joint5
       - panda_joint6
       - panda_joint7
-  hand_controller:
+  gripper_controller:
     type: FollowJointTrajectory
     joints:
-      - panda_finger_left_joint
+      - panda_finger_joint1
