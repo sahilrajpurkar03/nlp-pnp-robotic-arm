@@ -1,0 +1,19 @@
+digraph G {
+"world" -> "panda_link0"[label=" Broadcaster: default_authority\nAverage rate: 10000.0\nBuffer length: 0.0\nMost recent transform: 0.0\nOldest transform: 0.0\n"];
+"panda_hand" -> "panda_random"[label=" Broadcaster: default_authority\nAverage rate: 10000.0\nBuffer length: 0.0\nMost recent transform: 0.0\nOldest transform: 0.0\n"];
+"panda_link8" -> "panda_hand"[label=" Broadcaster: default_authority\nAverage rate: 10000.0\nBuffer length: 0.0\nMost recent transform: 0.0\nOldest transform: 0.0\n"];
+"panda_link7" -> "panda_link8"[label=" Broadcaster: default_authority\nAverage rate: 10000.0\nBuffer length: 0.0\nMost recent transform: 0.0\nOldest transform: 0.0\n"];
+"panda_link6" -> "panda_link7"[label=" Broadcaster: default_authority\nAverage rate: 18.236\nBuffer length: 4.99\nMost recent transform: 1755086732.997153\nOldest transform: 1755086728.007155\n"];
+"panda_hand" -> "panda_leftfinger"[label=" Broadcaster: default_authority\nAverage rate: 18.236\nBuffer length: 4.99\nMost recent transform: 1755086732.997153\nOldest transform: 1755086728.007155\n"];
+"panda_hand" -> "panda_rightfinger"[label=" Broadcaster: default_authority\nAverage rate: 18.236\nBuffer length: 4.99\nMost recent transform: 1755086732.997153\nOldest transform: 1755086728.007155\n"];
+"panda_link0" -> "panda_link1"[label=" Broadcaster: default_authority\nAverage rate: 18.236\nBuffer length: 4.99\nMost recent transform: 1755086732.997153\nOldest transform: 1755086728.007155\n"];
+"panda_link1" -> "panda_link2"[label=" Broadcaster: default_authority\nAverage rate: 18.236\nBuffer length: 4.99\nMost recent transform: 1755086732.997153\nOldest transform: 1755086728.007155\n"];
+"panda_link2" -> "panda_link3"[label=" Broadcaster: default_authority\nAverage rate: 18.236\nBuffer length: 4.99\nMost recent transform: 1755086732.997153\nOldest transform: 1755086728.007155\n"];
+"panda_link3" -> "panda_link4"[label=" Broadcaster: default_authority\nAverage rate: 18.236\nBuffer length: 4.99\nMost recent transform: 1755086732.997153\nOldest transform: 1755086728.007155\n"];
+"panda_link4" -> "panda_link5"[label=" Broadcaster: default_authority\nAverage rate: 18.236\nBuffer length: 4.99\nMost recent transform: 1755086732.997153\nOldest transform: 1755086728.007155\n"];
+"panda_link5" -> "panda_link6"[label=" Broadcaster: default_authority\nAverage rate: 18.236\nBuffer length: 4.99\nMost recent transform: 1755086732.997153\nOldest transform: 1755086728.007155\n"];
+edge [style=invis];
+ subgraph cluster_legend { style=bold; color=black; label ="view_frames Result";
+"Recorded at time: 1755086733.0122378"[ shape=plaintext ] ;
+}->"world";
+}
