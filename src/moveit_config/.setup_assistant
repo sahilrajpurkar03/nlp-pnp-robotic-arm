@@ -5,9 +5,9 @@ moveit_setup_assistant_config:
   srdf:
     relative_path: config/panda.srdf
   package_settings:
-    author_name: Rahul Panchal
+    author_name: Rahul
     author_email: rahul@gmail.com
-    generated_timestamp: 1754912510
+    generated_timestamp: 1755080168
   control_xacro:
     command:
       - position

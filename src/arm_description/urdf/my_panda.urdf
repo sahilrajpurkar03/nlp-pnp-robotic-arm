@@ -194,7 +194,7 @@
   </link>
   <joint name="panda_joint6" type="revolute">
     <safety_controller k_position="100.0" k_velocity="40.0" soft_lower_limit="-0.0175" soft_upper_limit="3.7525"/>
-    <origin rpy="1.5707963267948966 0 0" xyz="0 0 0"/>
+    <origin rpy="-1.5707963267948966 0 0" xyz="0 0 0"/>
     <parent link="panda_link5"/>
     <child link="panda_link6"/>
     <axis xyz="0 0 1"/>
@@ -246,7 +246,7 @@
   <joint name="panda_hand_joint" type="fixed">
     <parent link="panda_link8"/>
     <child link="panda_hand"/>
-    <origin rpy="0 0 -0.7853981633974483" xyz="0 0 0"/>
+    <origin rpy="0 0 0" xyz="0 0 0"/>
   </joint>
   <!-- Hand Link -->
   <link name="panda_hand">

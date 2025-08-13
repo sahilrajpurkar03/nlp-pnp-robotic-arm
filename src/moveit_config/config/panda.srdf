@@ -26,22 +26,22 @@
         <joint name="panda_joint1" value="0"/>
         <joint name="panda_joint2" value="0"/>
         <joint name="panda_joint3" value="0"/>
-        <joint name="panda_joint4" value="-0.4844"/>
+        <joint name="panda_joint4" value="-0.4181"/>
         <joint name="panda_joint5" value="0"/>
-        <joint name="panda_joint6" value="3.1415"/>
+        <joint name="panda_joint6" value="0"/>
         <joint name="panda_joint7" value="0"/>
     </group_state>
     <group_state name="ready" group="arm">
         <joint name="panda_joint1" value="0"/>
         <joint name="panda_joint2" value="0"/>
-        <joint name="panda_joint3" value="0"/>
-        <joint name="panda_joint4" value="-1.5708"/>
-        <joint name="panda_joint5" value="0"/>
-        <joint name="panda_joint6" value="3.0019"/>
-        <joint name="panda_joint7" value="0"/>
+        <joint name="panda_joint3" value="-1.9689"/>
+        <joint name="panda_joint4" value="-1.7118"/>
+        <joint name="panda_joint5" value="-2.8973"/>
+        <joint name="panda_joint6" value="-0.0175"/>
+        <joint name="panda_joint7" value="2.8973"/>
     </group_state>
     <group_state name="gripper_open" group="gripper">
-        <joint name="panda_finger_joint1" value="0.0097"/>
+        <joint name="panda_finger_joint1" value="0.04"/>
     </group_state>
     <group_state name="gripper_close" group="gripper">
         <joint name="panda_finger_joint1" value="0"/>
@@ -52,12 +52,10 @@
     <disable_collisions link1="panda_hand" link2="panda_leftfinger" reason="Adjacent"/>
     <disable_collisions link1="panda_hand" link2="panda_link3" reason="Never"/>
     <disable_collisions link1="panda_hand" link2="panda_link4" reason="Never"/>
-    <disable_collisions link1="panda_hand" link2="panda_link5" reason="Default"/>
     <disable_collisions link1="panda_hand" link2="panda_link6" reason="Never"/>
     <disable_collisions link1="panda_hand" link2="panda_link7" reason="Adjacent"/>
     <disable_collisions link1="panda_hand" link2="panda_rightfinger" reason="Adjacent"/>
     <disable_collisions link1="panda_leftfinger" link2="panda_link3" reason="Never"/>
-    <disable_collisions link1="panda_leftfinger" link2="panda_link4" reason="Never"/>
     <disable_collisions link1="panda_leftfinger" link2="panda_link6" reason="Never"/>
     <disable_collisions link1="panda_leftfinger" link2="panda_link7" reason="Never"/>
     <disable_collisions link1="panda_leftfinger" link2="panda_rightfinger" reason="Default"/>
@@ -78,9 +76,7 @@
     <disable_collisions link1="panda_link4" link2="panda_link5" reason="Adjacent"/>
     <disable_collisions link1="panda_link4" link2="panda_link6" reason="Never"/>
     <disable_collisions link1="panda_link4" link2="panda_link7" reason="Never"/>
-    <disable_collisions link1="panda_link4" link2="panda_rightfinger" reason="Never"/>
     <disable_collisions link1="panda_link5" link2="panda_link6" reason="Adjacent"/>
-    <disable_collisions link1="panda_link5" link2="panda_link7" reason="Default"/>
     <disable_collisions link1="panda_link6" link2="panda_link7" reason="Adjacent"/>
     <disable_collisions link1="panda_link6" link2="panda_rightfinger" reason="Never"/>
     <disable_collisions link1="panda_link7" link2="panda_rightfinger" reason="Never"/>

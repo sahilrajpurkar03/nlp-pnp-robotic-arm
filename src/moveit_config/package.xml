@@ -1,12 +1,12 @@
 <?xml version="1.0"?>
 <?xml-model href="http://download.ros.org/schema/package_format3.xsd" schematypens="http://www.w3.org/2001/XMLSchema"?>
 <package format="3">
-  <name>my_panda_moveit_config</name>
+  <name>moveit_config</name>
   <version>0.3.0</version>
   <description>
      An automatically generated package with all the configuration and launch files for using the panda with the MoveIt Motion Planning Framework
   </description>
-  <maintainer email="rahul@gmail.com">Rahul Panchal</maintainer>
+  <maintainer email="rahul@gmail.com">Rahul</maintainer>
 
   <license>BSD</license>
 
@@ -14,7 +14,7 @@
   <url type="bugtracker">https://github.com/ros-planning/moveit2/issues</url>
   <url type="repository">https://github.com/ros-planning/moveit2</url>
 
-  <author email="rahul@gmail.com">Rahul Panchal</author>
+  <author email="rahul@gmail.com">Rahul</author>
 
   <buildtool_depend>ament_cmake</buildtool_depend>
 

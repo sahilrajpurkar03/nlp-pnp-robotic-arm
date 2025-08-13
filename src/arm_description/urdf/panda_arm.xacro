@@ -250,7 +250,7 @@
       name="${arm_id}_joint6" type="revolute">
       <safety_controller k_position="100.0" k_velocity="40.0" soft_lower_limit="-0.0175"
         soft_upper_limit="3.7525" />
-      <origin rpy="${pi/2} 0 0" xyz="0 0 0" />
+      <origin rpy="${-pi/2} 0 0" xyz="0 0 0" />
       <parent link="${arm_id}_link5" />
       <child link="${arm_id}_link6" />
       <axis xyz="0 0 1" />

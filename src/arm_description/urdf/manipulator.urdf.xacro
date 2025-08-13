@@ -10,7 +10,7 @@
   <!-- call the arm macro-->
   <xacro:panda_arm />
   <!-- call the hand macro-->
-  <xacro:panda_hand ns="panda" rpy="0 0 ${-pi/4}" connected_to="panda_link8" />
+  <xacro:panda_hand ns="panda" rpy="0 0 0" connected_to="panda_link8" />
 
 
 </robot>

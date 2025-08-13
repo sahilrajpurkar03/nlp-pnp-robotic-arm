@@ -26,8 +26,8 @@ target_compile_features(move_panda_custom_joints PUBLIC cxx_std_17)
 
 ament_target_dependencies(
   move_panda_predef_pose
-  "moveit_ros_planning_interface"
-  "rclcpp"
+  moveit_ros_planning_interface
+  rclcpp
 )
 
 ament_target_dependencies(
