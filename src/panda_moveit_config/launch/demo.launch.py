@@ -27,7 +27,7 @@ def generate_launch_description():
     )
 
     moveit_config = (
-        MoveItConfigsBuilder("moveit_resources_panda")
+        MoveItConfigsBuilder("panda")
         .robot_description(
             file_path="config/panda.urdf.xacro",
             mappings={
@@ -56,7 +56,7 @@ def generate_launch_description():
     # RViz
     tutorial_mode = LaunchConfiguration("rviz_tutorial")
     rviz_base = os.path.join(
-        get_package_share_directory("moveit_resources_panda_moveit_config"), "launch"
+        get_package_share_directory("panda_moveit_config"), "launch"
     )
     rviz_full_config = os.path.join(rviz_base, "moveit.rviz")
     rviz_empty_config = os.path.join(rviz_base, "moveit_empty.rviz")
@@ -109,7 +109,7 @@ def generate_launch_description():
 
     # ros2_control using FakeSystem as hardware
     ros2_controllers_path = os.path.join(
-        get_package_share_directory("moveit_resources_panda_moveit_config"),
+        get_package_share_directory("panda_moveit_config"),
         "config",
         "ros2_controllers.yaml",
     )
