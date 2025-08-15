@@ -13,3 +13,46 @@ ros2 run yolov8obb_object_detection yolov8_obb_subscriber
 ros2 run yolov8obb_object_detection yolov8_obb_publisher 
 
 ros2 launch yolov8obb_object_detection yolov8_obb_launch.py
+
+
+dependencies
+
+moveit package
+install franka packages
+install ultralytics
+ros-humble-ros2-controlros-humble-ros2-controllers
+ros-humble-gripper-controllers
+ros-humble-moveit-py
+
+
+
+
+from pxr import UsdGeom
+import omni.usd
+
+# Get the current stage
+stage = omni.usd.get_context().get_stage()
+
+# Camera prim path
+camera_prim_path = "/World/detection_camera/Camera_SG2_OX03CC_5200_GMSL2_H60YA"
+camera_prim = stage.GetPrimAtPath(camera_prim_path)
+camera = UsdGeom.Camera(camera_prim)
+
+# Camera parameters from USD
+focal_length_mm = camera.GetFocalLengthAttr().Get()              # focal length in mm
+horizontal_aperture_mm = camera.GetHorizontalApertureAttr().Get()  # sensor width in mm
+vertical_aperture_mm = camera.GetVerticalApertureAttr().Get()      # sensor height in mm
+
+# Image resolution (your render resolution)
+width = 1920
+height = 1080
+
+# Convert focal length to pixels
+fx = (focal_length_mm / horizontal_aperture_mm) * width
+fy = (focal_length_mm / vertical_aperture_mm) * height
+
+# Principal point (assume image center)
+cx = width / 2
+cy = height / 2
+
+print(f"fx={fx}, fy={fy}, cx={cx}, cy={cy}")
