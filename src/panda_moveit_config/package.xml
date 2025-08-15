@@ -40,6 +40,12 @@
        Commented the dependency until this works. -->
   <!-- <exec_depend>warehouse_ros_mongo</exec_depend> -->
 
+  <!-- Added dependencies for custom MoveIt2 C++ node -->
+  <exec_depend>rclcpp</exec_depend>
+  <exec_depend>geometry_msgs</exec_depend>
+  <exec_depend>moveit_core</exec_depend>
+  <exec_depend>moveit_ros_planning_interface</exec_depend>
+
   <export>
       <build_type>ament_cmake</build_type>
   </export>
