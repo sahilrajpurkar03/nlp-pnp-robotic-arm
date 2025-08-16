@@ -3,6 +3,8 @@
 #include <memory>
 #include <string>
 #include <cstdlib> // for std::atof
+#include <tf2/LinearMath/Quaternion.h>
+#include <geometry_msgs/msg/pose_stamped.hpp>
 
 int main(int argc, char** argv)
 {
@@ -19,9 +21,6 @@ int main(int argc, char** argv)
     auto node = rclcpp::Node::make_shared("panda_pick_place");  // ✅ renamed node
 
     // --- Step 3: Add parameter for Z value ---
-    // z_value represents the "pickup height" of the end-effector above the surface.
-    // Default = 0.2 m (20 cm), but can be changed at runtime with:
-    //   ros2 param set /panda_pick_place z_value 0.25
     double z_default = 0.5;
     node->declare_parameter("z_value", z_default);
 
@@ -61,20 +60,39 @@ int main(int argc, char** argv)
     moveit::planning_interface::MoveGroupInterface move_group(node, "panda_arm");
     RCLCPP_INFO(node->get_logger(), "MoveGroupInterface ready for planning.");
 
-    // Set only the position target; orientation is automatically chosen
-    move_group.setPositionTarget(x, y, z);
+    // --- Set downward-facing orientation ---
+    tf2::Quaternion q;
+    q.setRPY(M_PI, 0, 0); // Roll = 180°, Pitch = 0, Yaw = 0
+    q.normalize();
 
-    RCLCPP_INFO(node->get_logger(), "Planning to X: %f, Y: %f, Z (pickup height): %f", x, y, z);
+    // --- Define target pose in XY plane ---
+    geometry_msgs::msg::Pose start_pose = move_group.getCurrentPose().pose;
+    geometry_msgs::msg::Pose target_pose = start_pose;
+    target_pose.position.x = x;
+    target_pose.position.y = y;
+    target_pose.position.z = z; // fixed height
+    target_pose.orientation.x = q.x();
+    target_pose.orientation.y = q.y();
+    target_pose.orientation.z = q.z();
+    target_pose.orientation.w = q.w();
 
-    // Plan and execute
-    moveit::planning_interface::MoveGroupInterface::Plan plan;
-    auto success = (move_group.plan(plan) == moveit::core::MoveItErrorCode::SUCCESS);
+    std::vector<geometry_msgs::msg::Pose> waypoints;
+    waypoints.push_back(target_pose);
 
-    if (success) {
-        RCLCPP_INFO(node->get_logger(), "Planning successful. Executing...");
-        move_group.execute(plan);
+    // --- Compute Cartesian path ---
+    moveit_msgs::msg::RobotTrajectory trajectory;
+    double fraction = move_group.computeCartesianPath(
+        waypoints,
+        0.01,   // eef_step in meters
+        0.0,    // jump_threshold
+        trajectory
+    );
+
+    if (fraction > 0.99) {
+        RCLCPP_INFO(node->get_logger(), "Cartesian path computed successfully. Executing...");
+        move_group.execute(trajectory);
     } else {
-        RCLCPP_ERROR(node->get_logger(), "Planning failed!");
+        RCLCPP_ERROR(node->get_logger(), "Failed to compute Cartesian path! Fraction: %f", fraction);
     }
 
     rclcpp::shutdown();
