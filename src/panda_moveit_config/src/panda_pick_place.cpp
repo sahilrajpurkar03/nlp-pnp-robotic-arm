@@ -5,6 +5,8 @@
 #include <cstdlib> // for std::atof
 #include <tf2/LinearMath/Quaternion.h>
 #include <geometry_msgs/msg/pose_stamped.hpp>
+#include <thread>
+#include <chrono>
 
 int main(int argc, char** argv)
 {
@@ -20,20 +22,26 @@ int main(int argc, char** argv)
     rclcpp::init(argc, argv);
     auto node = rclcpp::Node::make_shared("panda_pick_place");  // ✅ renamed node
 
-    // --- Step 3: Add parameter for Z value ---
+    // --- Step 3: Add parameter for Z value and pick height ---
     double z_default = 0.5;
+    double pick_height_default = 0.2;  // new pick height parameter
     node->declare_parameter("z_value", z_default);
+    node->declare_parameter("pick_height", pick_height_default);
 
     // Allow runtime changes
     double z = node->get_parameter("z_value").as_double();
-    RCLCPP_INFO(node->get_logger(), "Initial pickup height (z): %f", z);
+    double pick_height = node->get_parameter("pick_height").as_double();
+    RCLCPP_INFO(node->get_logger(), "Initial travel height (z): %f, pick height: %f", z, pick_height);
 
     auto cb_handle = node->add_on_set_parameters_callback(
-        [&z, &node](const std::vector<rclcpp::Parameter> &params) {
+        [&z, &pick_height, &node](const std::vector<rclcpp::Parameter> &params) {
             for (auto &p : params) {
                 if (p.get_name() == "z_value") {
                     z = p.as_double();
-                    RCLCPP_INFO(node->get_logger(), "Updated pickup height (z): %f", z);
+                    RCLCPP_INFO(node->get_logger(), "Updated travel height (z): %f", z);
+                } else if (p.get_name() == "pick_height") {
+                    pick_height = p.as_double();
+                    RCLCPP_INFO(node->get_logger(), "Updated pick height: %f", pick_height);
                 }
             }
             rcl_interfaces::msg::SetParametersResult result;
@@ -58,6 +66,8 @@ int main(int argc, char** argv)
 
     // Construct MoveGroupInterface for the arm
     moveit::planning_interface::MoveGroupInterface move_group(node, "panda_arm");
+    moveit::planning_interface::MoveGroupInterface move_group_hand(node, "hand");
+
     RCLCPP_INFO(node->get_logger(), "MoveGroupInterface ready for planning.");
 
     // --- Set downward-facing orientation ---
@@ -65,34 +75,78 @@ int main(int argc, char** argv)
     q.setRPY(M_PI, 0, 0); // Roll = 180°, Pitch = 0, Yaw = 0
     q.normalize();
 
-    // --- Define target pose in XY plane ---
+    // --- Helper: gripper open/close ---
+    auto gripperAction = [&](const std::string &action) {
+        double value = 0.0;
+        if (action == "open") value = 0.03;
+        else if (action == "close") value = 0.001;
+        else { RCLCPP_INFO(node->get_logger(), "No such action"); return; }
+
+        move_group_hand.setJointValueTarget("panda_finger_joint1", value);
+        move_group_hand.setJointValueTarget("panda_finger_joint2", value);
+
+        moveit::planning_interface::MoveGroupInterface::Plan plan;
+        bool success = (move_group_hand.plan(plan) == moveit::core::MoveItErrorCode::SUCCESS);
+        if (success) move_group_hand.execute(plan);
+        std::this_thread::sleep_for(std::chrono::seconds(2));
+    };
+
+    // --- Move to target XY at travel height ---
     geometry_msgs::msg::Pose start_pose = move_group.getCurrentPose().pose;
-    geometry_msgs::msg::Pose target_pose = start_pose;
-    target_pose.position.x = x;
-    target_pose.position.y = y;
-    target_pose.position.z = z; // fixed height
-    target_pose.orientation.x = q.x();
-    target_pose.orientation.y = q.y();
-    target_pose.orientation.z = q.z();
-    target_pose.orientation.w = q.w();
+    geometry_msgs::msg::Pose travel_pose = start_pose;
+    travel_pose.position.x = x;
+    travel_pose.position.y = y;
+    travel_pose.position.z = z; // travel height
+    travel_pose.orientation.x = q.x();
+    travel_pose.orientation.y = q.y();
+    travel_pose.orientation.z = q.z();
+    travel_pose.orientation.w = q.w();
 
     std::vector<geometry_msgs::msg::Pose> waypoints;
-    waypoints.push_back(target_pose);
+    waypoints.push_back(travel_pose);
 
-    // --- Compute Cartesian path ---
     moveit_msgs::msg::RobotTrajectory trajectory;
-    double fraction = move_group.computeCartesianPath(
-        waypoints,
-        0.01,   // eef_step in meters
-        0.0,    // jump_threshold
-        trajectory
-    );
+    double fraction = move_group.computeCartesianPath(waypoints, 0.01, 0.0, trajectory);
 
     if (fraction > 0.99) {
-        RCLCPP_INFO(node->get_logger(), "Cartesian path computed successfully. Executing...");
+        RCLCPP_INFO(node->get_logger(), "Cartesian path to XY computed successfully. Executing...");
         move_group.execute(trajectory);
     } else {
-        RCLCPP_ERROR(node->get_logger(), "Failed to compute Cartesian path! Fraction: %f", fraction);
+        RCLCPP_ERROR(node->get_logger(), "Failed XY path!");
+    }
+
+    // --- Open gripper ---
+    RCLCPP_INFO(node->get_logger(), "Opening gripper...");
+    gripperAction("open");
+
+    // --- Move down to pick height ---
+    geometry_msgs::msg::Pose pick_pose = travel_pose;
+    pick_pose.position.z = pick_height;
+    waypoints.clear();
+    waypoints.push_back(pick_pose);
+
+    fraction = move_group.computeCartesianPath(waypoints, 0.01, 0.0, trajectory);
+    if (fraction > 0.99) {
+        RCLCPP_INFO(node->get_logger(), "Moving down to pick height. Executing...");
+        move_group.execute(trajectory);
+    } else {
+        RCLCPP_ERROR(node->get_logger(), "Failed move down!");
+    }
+
+    // --- Close gripper ---
+    RCLCPP_INFO(node->get_logger(), "Closing gripper...");
+    gripperAction("close");
+
+    // --- Lift back to travel height ---
+    waypoints.clear();
+    waypoints.push_back(travel_pose);
+
+    fraction = move_group.computeCartesianPath(waypoints, 0.01, 0.0, trajectory);
+    if (fraction > 0.99) {
+        RCLCPP_INFO(node->get_logger(), "Lifting back to travel height. Executing...");
+        move_group.execute(trajectory);
+    } else {
+        RCLCPP_ERROR(node->get_logger(), "Failed lift up!");
     }
 
     rclcpp::shutdown();
