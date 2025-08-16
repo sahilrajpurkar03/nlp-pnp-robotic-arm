@@ -56,3 +56,8 @@ cx = width / 2
 cy = height / 2
 
 print(f"fx={fx}, fy={fy}, cx={cx}, cy={cy}")
+
+# demo launch for panda and motion planning in rviz isaacsim
+1. open isaacsim and our .usd and start simulation
+2. launch rviz : ros2 launch panda_moveit_config demo.launch.py 
+3. ros2 run panda_moveit_config move_arm_to_xyz 0.0 0.0 0.0 (z is hardcoded in code)

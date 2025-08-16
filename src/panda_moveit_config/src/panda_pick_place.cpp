@@ -7,17 +7,40 @@
 int main(int argc, char** argv)
 {
     if (argc != 3) {
-        std::cerr << "Usage: move_arm_to_xyz X Y \n";
+        std::cerr << "Usage: panda_pick_place X Y \n";
         return 1;
     }
 
     // Parse command-line arguments
     double x = std::atof(argv[1]);
     double y = std::atof(argv[2]);
-    double z = 0.2; //std::atof(argv[3]);
 
     rclcpp::init(argc, argv);
-    auto node = rclcpp::Node::make_shared("move_arm_to_xyz_client");
+    auto node = rclcpp::Node::make_shared("panda_pick_place");  // ✅ renamed node
+
+    // --- Step 3: Add parameter for Z value ---
+    // z_value represents the "pickup height" of the end-effector above the surface.
+    // Default = 0.2 m (20 cm), but can be changed at runtime with:
+    //   ros2 param set /panda_pick_place z_value 0.25
+    double z_default = 0.5;
+    node->declare_parameter("z_value", z_default);
+
+    // Allow runtime changes
+    double z = node->get_parameter("z_value").as_double();
+    RCLCPP_INFO(node->get_logger(), "Initial pickup height (z): %f", z);
+
+    auto cb_handle = node->add_on_set_parameters_callback(
+        [&z, &node](const std::vector<rclcpp::Parameter> &params) {
+            for (auto &p : params) {
+                if (p.get_name() == "z_value") {
+                    z = p.as_double();
+                    RCLCPP_INFO(node->get_logger(), "Updated pickup height (z): %f", z);
+                }
+            }
+            rcl_interfaces::msg::SetParametersResult result;
+            result.successful = true;
+            return result;
+        });
 
     // Parameter client for the running move_group
     auto param_client = std::make_shared<rclcpp::SyncParametersClient>(node, "/move_group");
@@ -41,7 +64,7 @@ int main(int argc, char** argv)
     // Set only the position target; orientation is automatically chosen
     move_group.setPositionTarget(x, y, z);
 
-    RCLCPP_INFO(node->get_logger(), "Planning to X: %f, Y: %f, Z: %f", x, y, z);
+    RCLCPP_INFO(node->get_logger(), "Planning to X: %f, Y: %f, Z (pickup height): %f", x, y, z);
 
     // Plan and execute
     moveit::planning_interface::MoveGroupInterface::Plan plan;
