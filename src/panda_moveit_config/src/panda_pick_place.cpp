@@ -7,193 +7,240 @@
 #include <geometry_msgs/msg/pose_stamped.hpp>
 #include <thread>
 #include <chrono>
-#include <control_msgs/action/gripper_command.hpp>
-#include <rclcpp_action/rclcpp_action.hpp>
+#include <vector>
 
-int main(int argc, char** argv)
+// -------------------- Fixed-Z convenience wrappers --------------------
+bool move_to(double x, double y, double z,
+             double roll, double pitch, double yaw,
+             moveit::planning_interface::MoveGroupInterface &move_group)
 {
-    if (argc != 3) {
+    tf2::Quaternion q;
+    q.setRPY(roll, pitch, yaw);
+    q.normalize();
+
+    geometry_msgs::msg::Pose target_pose;
+    target_pose.position.x = x;
+    target_pose.position.y = y;
+    target_pose.position.z = z;
+    target_pose.orientation.x = q.x();
+    target_pose.orientation.y = q.y();
+    target_pose.orientation.z = q.z();
+    target_pose.orientation.w = q.w();
+
+    move_group.setPoseTarget(target_pose);
+    moveit::planning_interface::MoveGroupInterface::Plan plan;
+    if (move_group.plan(plan) == moveit::core::MoveItErrorCode::SUCCESS)
+    {
+        move_group.execute(plan);
+        return true;
+    }
+    else
+    {
+        RCLCPP_ERROR(rclcpp::get_logger("move_to"), "Failed to plan to target pose");
+        return false;
+    }
+}
+
+// -------------------- Cartesian helpers --------------------
+bool move_cartesian_to(double x, double y, double z,
+                       double roll, double pitch, double yaw,
+                       moveit::planning_interface::MoveGroupInterface &move_group)
+{
+    tf2::Quaternion q;
+    q.setRPY(roll, pitch, yaw);
+    q.normalize();
+
+    geometry_msgs::msg::Pose target_pose;
+    target_pose.position.x = x;
+    target_pose.position.y = y;
+    target_pose.position.z = z;
+    target_pose.orientation.x = q.x();
+    target_pose.orientation.y = q.y();
+    target_pose.orientation.z = q.z();
+    target_pose.orientation.w = q.w();
+
+    std::vector<geometry_msgs::msg::Pose> waypoints;
+    waypoints.push_back(target_pose);
+
+    moveit_msgs::msg::RobotTrajectory trajectory;
+    double fraction = move_group.computeCartesianPath(waypoints, 0.01, 0.0, trajectory);
+
+    if (fraction > 0.99)
+    {
+        move_group.execute(trajectory);
+        return true;
+    }
+    else
+    {
+        RCLCPP_ERROR(rclcpp::get_logger("move_cartesian_to"), "Failed to compute Cartesian path");
+        return false;
+    }
+}
+
+// -------------------- Helper motions --------------------
+bool move_to_xy_at_approach(double x, double y, double yaw,
+                            moveit::planning_interface::MoveGroupInterface &move_group, double approach_z)
+{
+    // Cartesian approach
+    return move_cartesian_to(x, y, approach_z, M_PI, 0.0, yaw, move_group);
+}
+
+bool move_to_xy_at_pick(double x, double y, double yaw,
+                        moveit::planning_interface::MoveGroupInterface &move_group, double pick_z)
+{
+    return move_cartesian_to(x, y, pick_z, M_PI, 0.0, yaw, move_group);
+}
+
+bool move_to_xy_at_carry(double x, double y, double yaw,
+                         moveit::planning_interface::MoveGroupInterface &move_group, double carry_z)
+{
+    return move_to(x, y, carry_z, M_PI, 0.0, yaw, move_group); // joint-space
+}
+
+// -------------------- Gripper helpers --------------------
+void open_gripper(moveit::planning_interface::MoveGroupInterface &hand_group)
+{
+    hand_group.setJointValueTarget("panda_finger_joint1", 0.03);
+    hand_group.setJointValueTarget("panda_finger_joint2", 0.03);
+
+    moveit::planning_interface::MoveGroupInterface::Plan plan;
+    if (hand_group.plan(plan) == moveit::core::MoveItErrorCode::SUCCESS)
+    {
+        hand_group.execute(plan);
+        std::this_thread::sleep_for(std::chrono::seconds(2));
+    }
+}
+
+void close_gripper(moveit::planning_interface::MoveGroupInterface &hand_group)
+{
+    hand_group.setJointValueTarget("panda_finger_joint1", 0.001);
+    hand_group.setJointValueTarget("panda_finger_joint2", 0.001);
+
+    moveit::planning_interface::MoveGroupInterface::Plan plan;
+    if (hand_group.plan(plan) == moveit::core::MoveItErrorCode::SUCCESS)
+    {
+        hand_group.execute(plan);
+        std::this_thread::sleep_for(std::chrono::seconds(2));
+    }
+}
+
+// -------------------- Full pick-and-place workflow --------------------
+void pick_and_place(double x_pick, double y_pick,
+                    double x_drop, double y_drop,
+                    moveit::planning_interface::MoveGroupInterface &move_group,
+                    moveit::planning_interface::MoveGroupInterface &hand_group,
+                    const geometry_msgs::msg::Pose &home_pose,
+                    double approach_z, double pick_z, double carry_z)
+{
+    // Approach pick location (Cartesian)
+    move_to_xy_at_approach(x_pick, y_pick, 0.0, move_group, approach_z);
+
+    open_gripper(hand_group);
+
+    // Lower to pick (Cartesian)
+    move_to_xy_at_pick(x_pick, y_pick, 0.0, move_group, pick_z);
+
+    close_gripper(hand_group);
+
+    // Lift after pick (joint-space)
+    move_to_xy_at_carry(x_pick, y_pick, 0.0, move_group, carry_z);
+
+    // Move to drop location (Cartesian in XY)
+    move_to_xy_at_carry(x_drop, y_drop, 0.0, move_group, carry_z);
+
+    // Lower to drop (Cartesian)
+    move_to_xy_at_pick(x_drop, y_drop, 0.0, move_group, pick_z);
+
+    open_gripper(hand_group);
+
+    // Lift after drop (joint-space)
+    move_to_xy_at_carry(x_drop, y_drop, 0.0, move_group, carry_z);
+
+    // Return to safe pose & ready (joint-space)
+    geometry_msgs::msg::Pose safe_pose = move_group.getCurrentPose().pose;
+    safe_pose.position.z += 0.05;
+    move_group.setPoseTarget(safe_pose);
+    move_group.move();
+
+    bool returned = false;
+    for (int i = 0; i < 3 && !returned; i++)
+    {
+        moveit::planning_interface::MoveGroupInterface::Plan ready_plan;
+        move_group.setNamedTarget("ready");
+
+        if (move_group.plan(ready_plan) == moveit::core::MoveItErrorCode::SUCCESS)
+        {
+            if (move_group.execute(ready_plan) == moveit::core::MoveItErrorCode::SUCCESS)
+            {
+                RCLCPP_INFO(rclcpp::get_logger("pick_and_place"), "Returned to 'ready' pose.");
+                returned = true;
+            }
+        }
+    }
+
+    if (!returned)
+        RCLCPP_ERROR(rclcpp::get_logger("pick_and_place"), "Failed to return to 'ready' pose!");
+}
+
+// -------------------- Main --------------------
+int main(int argc, char **argv)
+{
+    if (argc != 3)
+    {
         std::cerr << "Usage: panda_pick_place X Y \n";
         return 1;
     }
 
-    // Parse command-line arguments
     double x = std::atof(argv[1]);
     double y = std::atof(argv[2]);
 
     rclcpp::init(argc, argv);
     auto node = rclcpp::Node::make_shared("panda_pick_place");
 
-    // --- Step 3: Add parameters for Z value and pick height ---
-    double z_default = 0.5;
-    double pick_height_default = 0.2;
-    node->declare_parameter("z_value", z_default);
-    node->declare_parameter("pick_height", pick_height_default);
+    double approach_z_local = 0.5;
+    double pick_z_local     = 0.2;
+    double carry_z_local    = 0.5;
 
-    double z = node->get_parameter("z_value").as_double();
-    double pick_height = node->get_parameter("pick_height").as_double();
-    RCLCPP_INFO(node->get_logger(), "Initial travel height (z): %f, pick height: %f", z, pick_height);
+    auto param_client = std::make_shared<rclcpp::SyncParametersClient>(node, "/move_group");
+    while (!param_client->wait_for_service(std::chrono::seconds(1)))
+        RCLCPP_INFO(node->get_logger(), "Waiting for /move_group parameters...");
+
+    std::string urdf = param_client->get_parameter<std::string>("robot_description");
+    std::string srdf = param_client->get_parameter<std::string>("robot_description_semantic");
+    node->declare_parameter("robot_description", urdf);
+    node->declare_parameter("robot_description_semantic", srdf);
+
+    node->declare_parameter("approach_z", approach_z_local);
+    node->declare_parameter("pick_z", pick_z_local);
+    node->declare_parameter("carry_z", carry_z_local);
+
+    approach_z_local = node->get_parameter("approach_z").as_double();
+    pick_z_local     = node->get_parameter("pick_z").as_double();
+    carry_z_local    = node->get_parameter("carry_z").as_double();
+
+    RCLCPP_INFO(node->get_logger(), "Z heights: approach=%f, pick=%f, carry=%f",
+                approach_z_local, pick_z_local, carry_z_local);
 
     auto cb_handle = node->add_on_set_parameters_callback(
-        [&z, &pick_height, &node](const std::vector<rclcpp::Parameter> &params) {
-            for (auto &p : params) {
-                if (p.get_name() == "z_value") {
-                    z = p.as_double();
-                    RCLCPP_INFO(node->get_logger(), "Updated travel height (z): %f", z);
-                } else if (p.get_name() == "pick_height") {
-                    pick_height = p.as_double();
-                    RCLCPP_INFO(node->get_logger(), "Updated pick height: %f", pick_height);
-                }
+        [&approach_z_local, &pick_z_local, &carry_z_local, &node](const std::vector<rclcpp::Parameter> &params) {
+            for (auto &p : params)
+            {
+                if (p.get_name() == "approach_z") approach_z_local = p.as_double();
+                else if (p.get_name() == "pick_z") pick_z_local = p.as_double();
+                else if (p.get_name() == "carry_z") carry_z_local = p.as_double();
             }
             rcl_interfaces::msg::SetParametersResult result;
             result.successful = true;
             return result;
         });
 
-    // Parameter client for move_group
-    auto param_client = std::make_shared<rclcpp::SyncParametersClient>(node, "/move_group");
-
-    while (!param_client->wait_for_service(std::chrono::seconds(1))) {
-        RCLCPP_INFO(node->get_logger(), "Waiting for /move_group parameters...");
-    }
-
-    std::string urdf = param_client->get_parameter<std::string>("robot_description");
-    std::string srdf = param_client->get_parameter<std::string>("robot_description_semantic");
-
-    node->declare_parameter("robot_description", urdf);
-    node->declare_parameter("robot_description_semantic", srdf);
-
-    // MoveGroupInterface
     moveit::planning_interface::MoveGroupInterface move_group(node, "panda_arm");
-    moveit::planning_interface::MoveGroupInterface move_group_hand(node, "hand");
+    moveit::planning_interface::MoveGroupInterface hand_group(node, "hand");
 
-    RCLCPP_INFO(node->get_logger(), "MoveGroupInterface ready for planning.");
+    geometry_msgs::msg::Pose home_pose = move_group.getCurrentPose().pose;
 
-    // Orientation: downward-facing
-    tf2::Quaternion q;
-    q.setRPY(M_PI, 0, 0);
-    q.normalize();
-
-    // --- Original joint-value gripper control ---
-    auto gripperAction = [&](const std::string &action) {
-        double value = 0.0;
-        if (action == "open") value = 0.03;
-        else if (action == "close") value = 0.001;
-        else { RCLCPP_INFO(node->get_logger(), "No such action"); return; }
-
-        move_group_hand.setJointValueTarget("panda_finger_joint1", value);
-        move_group_hand.setJointValueTarget("panda_finger_joint2", value);
-
-        moveit::planning_interface::MoveGroupInterface::Plan plan;
-        bool success = (move_group_hand.plan(plan) == moveit::core::MoveItErrorCode::SUCCESS);
-        if (success) move_group_hand.execute(plan);
-        std::this_thread::sleep_for(std::chrono::seconds(2));
-    };
-
-    // --- ROS2 GripperCommand action control ---
-    auto gripperActionROS2 = [&node](const std::string &action) {
-        using GripperCommand = control_msgs::action::GripperCommand;
-        using GoalHandleGripper = rclcpp_action::ClientGoalHandle<GripperCommand>;
-
-        auto action_client = rclcpp_action::create_client<GripperCommand>(
-            node, "panda_hand_controller/gripper_cmd");
-
-        if (!action_client->wait_for_action_server(std::chrono::seconds(5))) {
-            RCLCPP_ERROR(node->get_logger(), "Gripper action server not available");
-            return;
-        }
-
-        double position = (action == "open") ? 0.04 : 0.0;
-        double max_effort = 50.0;
-
-        auto goal_msg = GripperCommand::Goal();
-        goal_msg.command.position = position;
-        goal_msg.command.max_effort = max_effort;
-
-        RCLCPP_INFO(node->get_logger(), "Sending ROS2 gripper command: %s", action.c_str());
-
-        auto future_goal_handle = action_client->async_send_goal(goal_msg);
-        if (rclcpp::spin_until_future_complete(node, future_goal_handle) !=
-            rclcpp::FutureReturnCode::SUCCESS) {
-            RCLCPP_ERROR(node->get_logger(), "Failed to send gripper goal");
-            return;
-        }
-
-        auto goal_handle = future_goal_handle.get();
-        if (!goal_handle) {
-            RCLCPP_ERROR(node->get_logger(), "Gripper goal rejected");
-            return;
-        }
-
-        auto future_result = action_client->async_get_result(goal_handle);
-        if (rclcpp::spin_until_future_complete(node, future_result) !=
-            rclcpp::FutureReturnCode::SUCCESS) {
-            RCLCPP_ERROR(node->get_logger(), "Failed to get gripper result");
-        } else {
-            RCLCPP_INFO(node->get_logger(),
-                        action == "open" ? "Gripper opened via ROS2." : "Gripper closed via ROS2.");
-        }
-    };
-
-    // --- Move to target XY at travel height ---
-    geometry_msgs::msg::Pose start_pose = move_group.getCurrentPose().pose;
-    geometry_msgs::msg::Pose travel_pose = start_pose;
-    travel_pose.position.x = x;
-    travel_pose.position.y = y;
-    travel_pose.position.z = z;
-    travel_pose.orientation.x = q.x();
-    travel_pose.orientation.y = q.y();
-    travel_pose.orientation.z = q.z();
-    travel_pose.orientation.w = q.w();
-
-    std::vector<geometry_msgs::msg::Pose> waypoints;
-    waypoints.push_back(travel_pose);
-
-    moveit_msgs::msg::RobotTrajectory trajectory;
-    double fraction = move_group.computeCartesianPath(waypoints, 0.01, 0.0, trajectory);
-
-    if (fraction > 0.99) {
-        RCLCPP_INFO(node->get_logger(), "Cartesian path to XY computed successfully. Executing...");
-        move_group.execute(trajectory);
-    } else {
-        RCLCPP_ERROR(node->get_logger(), "Failed XY path!");
-    }
-
-    // --- Open gripper ---
-    RCLCPP_INFO(node->get_logger(), "Opening gripper...");
-    gripperAction("open");        // Original joint-value control
-    // gripperActionROS2("open");  // ROS2 action control (alternative)
-
-    // --- Move down to pick height ---
-    geometry_msgs::msg::Pose pick_pose = travel_pose;
-    pick_pose.position.z = pick_height;
-    waypoints.clear();
-    waypoints.push_back(pick_pose);
-
-    fraction = move_group.computeCartesianPath(waypoints, 0.01, 0.0, trajectory);
-    if (fraction > 0.99) {
-        RCLCPP_INFO(node->get_logger(), "Moving down to pick height. Executing...");
-        move_group.execute(trajectory);
-    } else {
-        RCLCPP_ERROR(node->get_logger(), "Failed move down!");
-    }
-
-    // --- Close gripper ---
-    RCLCPP_INFO(node->get_logger(), "Closing gripper...");
-    gripperAction("close");        // Original joint-value control
-    // gripperActionROS2("close");  // ROS2 action control (alternative)
-
-    // --- Lift back to travel height ---
-    waypoints.clear();
-    waypoints.push_back(travel_pose);
-
-    fraction = move_group.computeCartesianPath(waypoints, 0.01, 0.0, trajectory);
-    if (fraction > 0.99) {
-        RCLCPP_INFO(node->get_logger(), "Lifting back to travel height. Executing...");
-        move_group.execute(trajectory);
-    } else {
-        RCLCPP_ERROR(node->get_logger(), "Failed lift up!");
-    }
+    pick_and_place(x, y, 0.6, -0.4, move_group, hand_group,
+                   home_pose, approach_z_local, pick_z_local, carry_z_local);
 
     rclcpp::shutdown();
     return 0;
