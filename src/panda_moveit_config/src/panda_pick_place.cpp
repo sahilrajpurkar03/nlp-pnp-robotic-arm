@@ -7,6 +7,8 @@
 #include <geometry_msgs/msg/pose_stamped.hpp>
 #include <thread>
 #include <chrono>
+#include <control_msgs/action/gripper_command.hpp>
+#include <rclcpp_action/rclcpp_action.hpp>
 
 int main(int argc, char** argv)
 {
@@ -20,15 +22,14 @@ int main(int argc, char** argv)
     double y = std::atof(argv[2]);
 
     rclcpp::init(argc, argv);
-    auto node = rclcpp::Node::make_shared("panda_pick_place");  // ✅ renamed node
+    auto node = rclcpp::Node::make_shared("panda_pick_place");
 
-    // --- Step 3: Add parameter for Z value and pick height ---
+    // --- Step 3: Add parameters for Z value and pick height ---
     double z_default = 0.5;
-    double pick_height_default = 0.2;  // new pick height parameter
+    double pick_height_default = 0.2;
     node->declare_parameter("z_value", z_default);
     node->declare_parameter("pick_height", pick_height_default);
 
-    // Allow runtime changes
     double z = node->get_parameter("z_value").as_double();
     double pick_height = node->get_parameter("pick_height").as_double();
     RCLCPP_INFO(node->get_logger(), "Initial travel height (z): %f, pick height: %f", z, pick_height);
@@ -49,33 +50,31 @@ int main(int argc, char** argv)
             return result;
         });
 
-    // Parameter client for the running move_group
+    // Parameter client for move_group
     auto param_client = std::make_shared<rclcpp::SyncParametersClient>(node, "/move_group");
 
     while (!param_client->wait_for_service(std::chrono::seconds(1))) {
         RCLCPP_INFO(node->get_logger(), "Waiting for /move_group parameters...");
     }
 
-    // Get URDF and SRDF from /move_group
     std::string urdf = param_client->get_parameter<std::string>("robot_description");
     std::string srdf = param_client->get_parameter<std::string>("robot_description_semantic");
 
-    // Declare parameters locally for MoveGroupInterface
     node->declare_parameter("robot_description", urdf);
     node->declare_parameter("robot_description_semantic", srdf);
 
-    // Construct MoveGroupInterface for the arm
+    // MoveGroupInterface
     moveit::planning_interface::MoveGroupInterface move_group(node, "panda_arm");
     moveit::planning_interface::MoveGroupInterface move_group_hand(node, "hand");
 
     RCLCPP_INFO(node->get_logger(), "MoveGroupInterface ready for planning.");
 
-    // --- Set downward-facing orientation ---
+    // Orientation: downward-facing
     tf2::Quaternion q;
-    q.setRPY(M_PI, 0, 0); // Roll = 180°, Pitch = 0, Yaw = 0
+    q.setRPY(M_PI, 0, 0);
     q.normalize();
 
-    // --- Helper: gripper open/close ---
+    // --- Original joint-value gripper control ---
     auto gripperAction = [&](const std::string &action) {
         double value = 0.0;
         if (action == "open") value = 0.03;
@@ -91,12 +90,57 @@ int main(int argc, char** argv)
         std::this_thread::sleep_for(std::chrono::seconds(2));
     };
 
+    // --- ROS2 GripperCommand action control ---
+    auto gripperActionROS2 = [&node](const std::string &action) {
+        using GripperCommand = control_msgs::action::GripperCommand;
+        using GoalHandleGripper = rclcpp_action::ClientGoalHandle<GripperCommand>;
+
+        auto action_client = rclcpp_action::create_client<GripperCommand>(
+            node, "panda_hand_controller/gripper_cmd");
+
+        if (!action_client->wait_for_action_server(std::chrono::seconds(5))) {
+            RCLCPP_ERROR(node->get_logger(), "Gripper action server not available");
+            return;
+        }
+
+        double position = (action == "open") ? 0.04 : 0.0;
+        double max_effort = 50.0;
+
+        auto goal_msg = GripperCommand::Goal();
+        goal_msg.command.position = position;
+        goal_msg.command.max_effort = max_effort;
+
+        RCLCPP_INFO(node->get_logger(), "Sending ROS2 gripper command: %s", action.c_str());
+
+        auto future_goal_handle = action_client->async_send_goal(goal_msg);
+        if (rclcpp::spin_until_future_complete(node, future_goal_handle) !=
+            rclcpp::FutureReturnCode::SUCCESS) {
+            RCLCPP_ERROR(node->get_logger(), "Failed to send gripper goal");
+            return;
+        }
+
+        auto goal_handle = future_goal_handle.get();
+        if (!goal_handle) {
+            RCLCPP_ERROR(node->get_logger(), "Gripper goal rejected");
+            return;
+        }
+
+        auto future_result = action_client->async_get_result(goal_handle);
+        if (rclcpp::spin_until_future_complete(node, future_result) !=
+            rclcpp::FutureReturnCode::SUCCESS) {
+            RCLCPP_ERROR(node->get_logger(), "Failed to get gripper result");
+        } else {
+            RCLCPP_INFO(node->get_logger(),
+                        action == "open" ? "Gripper opened via ROS2." : "Gripper closed via ROS2.");
+        }
+    };
+
     // --- Move to target XY at travel height ---
     geometry_msgs::msg::Pose start_pose = move_group.getCurrentPose().pose;
     geometry_msgs::msg::Pose travel_pose = start_pose;
     travel_pose.position.x = x;
     travel_pose.position.y = y;
-    travel_pose.position.z = z; // travel height
+    travel_pose.position.z = z;
     travel_pose.orientation.x = q.x();
     travel_pose.orientation.y = q.y();
     travel_pose.orientation.z = q.z();
@@ -117,7 +161,8 @@ int main(int argc, char** argv)
 
     // --- Open gripper ---
     RCLCPP_INFO(node->get_logger(), "Opening gripper...");
-    gripperAction("open");
+    gripperAction("open");        // Original joint-value control
+    // gripperActionROS2("open");  // ROS2 action control (alternative)
 
     // --- Move down to pick height ---
     geometry_msgs::msg::Pose pick_pose = travel_pose;
@@ -135,7 +180,8 @@ int main(int argc, char** argv)
 
     // --- Close gripper ---
     RCLCPP_INFO(node->get_logger(), "Closing gripper...");
-    gripperAction("close");
+    gripperAction("close");        // Original joint-value control
+    // gripperActionROS2("close");  // ROS2 action control (alternative)
 
     // --- Lift back to travel height ---
     waypoints.clear();

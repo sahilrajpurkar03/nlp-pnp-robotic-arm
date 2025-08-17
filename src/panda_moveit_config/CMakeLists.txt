@@ -43,6 +43,7 @@ ament_target_dependencies(panda_pick_place
    geometry_msgs
    moveit_core
    moveit_ros_planning_interface
+   control_msgs 
 )
 
 # Install all executables
