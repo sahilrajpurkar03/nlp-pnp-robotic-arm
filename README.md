@@ -1,8 +1,12 @@
 # FrankaChatPicker
 
+
+## Commands used:
+
 ros2 launch my_panda_moveit_config demo.launch.py 
 
 ros2 run yolov8obb_object_detection data_collector.py 
+
 
 
 
@@ -27,6 +31,9 @@ ros-humble-moveit-py
 
 
 
+## Code to extract the fx, fy, cx, cy from Isaac sim 
+
+```python
 from pxr import UsdGeom
 import omni.usd
 
@@ -61,3 +68,27 @@ print(f"fx={fx}, fy={fy}, cx={cx}, cy={cy}")
 1. open isaacsim and our .usd and start simulation
 2. launch rviz : ros2 launch panda_moveit_config demo.launch.py 
 3. ros2 run panda_moveit_config move_arm_to_xyz 0.0 0.0 0.0 (z is hardcoded in code)
+```
+
+## Step perform for chatbot
+```bash
+# install Ollama
+curl -fsSL https://ollama.com/install.sh | sh
+
+# pull a small instruct model
+ollama pull phi3
+```
+target_publisher.py    # ROS2 node (same as before)
+cmd_bridge.py          # FastAPI + LLM/Ros bridge
+llm_mapper.py          # Ollama / transformers wrapper
+
+```bash
+cd pick_place_chatbot_ui
+./launch.sh
+```
+
+```bash
+curl -X POST http://localhost:8000/chat \
+     -H "Content-Type: application/json" \
+     -d '{"text":"pick the red cube"}'
+```
