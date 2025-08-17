@@ -17,6 +17,7 @@
   <depend>geometry_msgs</depend>
   <depend>moveit_core</depend>
   <depend>moveit_ros_planning_interface</depend>
+  <depend>control_msgs</depend> <!-- ADDED -->
 
   <exec_depend>joint_state_publisher</exec_depend>
   <exec_depend>joint_state_publisher_gui</exec_depend>

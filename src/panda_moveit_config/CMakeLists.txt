@@ -13,6 +13,9 @@ find_package(geometry_msgs REQUIRED)
 find_package(moveit_core REQUIRED)
 find_package(moveit_ros_planning_interface REQUIRED)
 
+# --- NEW: Find control_msgs for gripper ---
+find_package(control_msgs REQUIRED)
+
 # --- Executable 1: move_arm_to_xyz ---
 add_executable(move_arm_to_xyz src/move_arm_to_xyz.cpp)
 ament_target_dependencies(move_arm_to_xyz
@@ -22,7 +25,17 @@ ament_target_dependencies(move_arm_to_xyz
    moveit_ros_planning_interface
 )
 
-# --- Executable 2: panda_pick_place ---
+# --- Executable 2: move_gripper ---
+add_executable(move_gripper src/move_gripper.cpp)
+ament_target_dependencies(move_gripper
+   rclcpp
+   geometry_msgs
+   moveit_core
+   moveit_ros_planning_interface
+   control_msgs   # <-- Added this line
+)
+
+# --- Executable 3: panda_pick_place ---
 add_executable(panda_pick_place src/panda_pick_place.cpp)
 ament_target_dependencies(panda_pick_place
    rclcpp
@@ -32,9 +45,10 @@ ament_target_dependencies(panda_pick_place
    moveit_ros_planning_interface
 )
 
-# Install both executables
+# Install all executables
 install(TARGETS
   move_arm_to_xyz
+  move_gripper
   panda_pick_place
   DESTINATION lib/${PROJECT_NAME}
 )
