@@ -1,5 +1,5 @@
 # FrankaChatPicker
-
+![image](docs/PickPlace.png)
 
 ## Commands used:
 
@@ -78,7 +78,7 @@ curl -fsSL https://ollama.com/install.sh | sh
 # pull a small instruct model
 ollama pull phi3
 ```
-target_publisher.py    # ROS2 node (same as before)
+target_publisher.py    # ROS2 node for target point 
 cmd_bridge.py          # FastAPI + LLM/Ros bridge
 llm_mapper.py          # Ollama / transformers wrapper
 
