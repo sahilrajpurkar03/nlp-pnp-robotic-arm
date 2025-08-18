@@ -1,3 +1,4 @@
+# cmd_bridge.py
 import threading
 import rclpy
 from rclpy.node import Node
@@ -8,7 +9,7 @@ from pydantic import BaseModel
 import uvicorn
 import os
 
-from llm_mapper import llm_extract_label, VALID_LABELS
+from llm_mapper import llm_chat_or_pick, VALID_LABELS
 
 # ---------- ROS2 Node ----------
 class CommandPublisher(Node):
@@ -42,13 +43,12 @@ def labels():
 
 @app.post("/chat")
 def chat(req: ChatRequest):
-    label = llm_extract_label(req.text)
-    if not label:
-        return {"ok": False, "message": "Could not map to a known object.", "labels": VALID_LABELS}
-    assert ros_node is not None
-    ros_node.publish_label(label)
-    return {"ok": True, "label": label}
+    data = llm_chat_or_pick(req.text)
+    if data.get("type") == "pick" and ros_node is not None:
+        ros_node.publish_label(data["label"])
+    return {"ok": True, "reply": data["reply"]}
 
+# ---------- FastAPI Thread ----------
 def start_fastapi():
     uvicorn.run(app, host="0.0.0.0", port=8000, log_level="info")
 

@@ -82,13 +82,7 @@ target_publisher.py    # ROS2 node (same as before)
 cmd_bridge.py          # FastAPI + LLM/Ros bridge
 llm_mapper.py          # Ollama / transformers wrapper
 
+for executing chatbot
 ```bash
-cd pick_place_chatbot_ui
-./launch.sh
-```
-
-```bash
-curl -X POST http://localhost:8000/chat \
-     -H "Content-Type: application/json" \
-     -d '{"text":"pick the red cube"}'
+./pick_place_chatbot_ui/launch.sh 
 ```

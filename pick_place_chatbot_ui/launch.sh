@@ -11,8 +11,13 @@ cd "$(dirname "$0")"
 python3 target_publisher.py &
 TP_PID=$!
 
+# Run yolov8_obb_publisher in background
+ros2 run yolov8obb_object_detection yolov8_obb_publisher &
+YOLO_PID=$!
+
 # Run cmd_bridge in foreground (so Ctrl+C stops both)
 python3 cmd_bridge.py
 
 # Cleanup when cmd_bridge exits
 kill $TP_PID
+kill $YOLO_PID

@@ -13,11 +13,14 @@
       align-items: center;
       height: 100vh;
       margin: 0;
+      padding: 10px;
+      box-sizing: border-box;
     }
 
     .chat-container {
-      width: 400px;
-      max-width: 90%;
+      width: 100%;
+      max-width: 400px;
+      height: 600px;
       background: #fff;
       border-radius: 10px;
       box-shadow: 0 0 10px rgba(0,0,0,0.2);
@@ -33,6 +36,7 @@
       display: flex;
       flex-direction: column;
       gap: 10px;
+      background-color: #f9f9f9;
     }
 
     .message {
@@ -57,6 +61,7 @@
     .input-container {
       display: flex;
       border-top: 1px solid #ccc;
+      background-color: #fff;
     }
 
     input {
@@ -78,6 +83,15 @@
 
     button:hover {
       background-color: #006bbf;
+    }
+
+    .messages::-webkit-scrollbar {
+      width: 6px;
+    }
+
+    .messages::-webkit-scrollbar-thumb {
+      background-color: rgba(0,0,0,0.2);
+      border-radius: 3px;
     }
   </style>
 </head>
@@ -121,16 +135,18 @@
         const botMsg = document.createElement("div");
         botMsg.classList.add("message", "bot");
 
-        if (data.ok) {
-          botMsg.textContent = `Picking the ${data.label} 🟢`;
-        } else {
-          botMsg.textContent = `Sorry, I could not understand. Valid objects: ${data.labels.join(", ")}`;
-        }
+        // Display reply from LLM (chat or pick)
+        botMsg.textContent = data.reply;
 
         messagesDiv.appendChild(botMsg);
         messagesDiv.scrollTop = messagesDiv.scrollHeight;
       } catch (err) {
         console.error(err);
+        const botMsg = document.createElement("div");
+        botMsg.classList.add("message", "bot");
+        botMsg.textContent = "Error communicating with server.";
+        messagesDiv.appendChild(botMsg);
+        messagesDiv.scrollTop = messagesDiv.scrollHeight;
       }
     }
 

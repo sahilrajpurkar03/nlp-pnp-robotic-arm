@@ -1,5 +1,5 @@
 # llm_mapper.py
-import subprocess
+import re
 
 VALID_LABELS = [
     "banana", "marker", "rubiks_cube",
@@ -7,24 +7,30 @@ VALID_LABELS = [
     "scissor", "clamp"
 ]
 
-def llm_extract_label(user_text: str) -> str | None:
+def llm_chat_or_pick(user_text: str) -> dict:
+    # Check if user wants to pick something
+    for label in VALID_LABELS:
+        if re.search(rf"\b{label}\b", user_text, re.IGNORECASE):
+            return {
+                "type": "pick",
+                "label": label,
+                "reply": f"Picking the {label} 🟢"
+            }
+
+    # If no valid pick detected, fallback to LLM for chat
     prompt = f"""
-    You are a command interpreter for a robot arm.
-    The user will ask to pick an object.
-    Valid objects are: {", ".join(VALID_LABELS)}.
-    From the user request below, extract the correct object label.
-    Respond with only the exact label from the list, nothing else.
-
-    Request: {user_text}
-    """
-
-    # Call Ollama with a small model (phi3 or qwen2.5)
+You are a helpful robot assistant. Only reply to casual chat.
+User message: "{user_text}"
+Respond only with text (no JSON needed).
+"""
+    import subprocess, json
     result = subprocess.run(
         ["ollama", "run", "phi3", prompt],
         capture_output=True, text=True
     )
-
-    output = result.stdout.strip()
-    if output in VALID_LABELS:
-        return output
-    return None
+    reply = result.stdout.strip() or "Hello! How can I help you?"
+    
+    return {
+        "type": "chat",
+        "reply": reply
+    }
