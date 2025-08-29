@@ -4,7 +4,6 @@ from launch.actions import DeclareLaunchArgument
 from launch.substitutions import LaunchConfiguration
 from launch.conditions import IfCondition, UnlessCondition
 from launch_ros.actions import Node
-from launch.actions import ExecuteProcess
 from ament_index_python.packages import get_package_share_directory
 from moveit_configs_utils import MoveItConfigsBuilder
 
@@ -26,6 +25,11 @@ def generate_launch_description():
         description="ROS2 control hardware interface type to use for the launch file -- possible values: [mock_components, isaac]",
     )
 
+    use_sim_time_arg = DeclareLaunchArgument(
+        "use_sim_time", default_value="false", description="Use simulation clock if true"
+    )
+
+    # Build MoveIt config
     moveit_config = (
         MoveItConfigsBuilder("panda")
         .robot_description(
@@ -44,12 +48,18 @@ def generate_launch_description():
         .to_moveit_configs()
     )
 
+    # https://github.com/moveit/moveit2/issues/2906#issuecomment-2992628998 for use_sim_time issue
+    # Inject use_sim_time into moveit_config dict
+    use_sim_time = LaunchConfiguration("use_sim_time")
+    moveit_config_dict = moveit_config.to_dict()
+    moveit_config_dict["use_sim_time"] = use_sim_time
+
     # Start the actual move_group node/action server
     move_group_node = Node(
         package="moveit_ros_move_group",
         executable="move_group",
         output="screen",
-        parameters=[moveit_config.to_dict()],
+        parameters=[moveit_config_dict],
         arguments=["--ros-args", "--log-level", "info"],
     )
 
@@ -71,6 +81,7 @@ def generate_launch_description():
             moveit_config.robot_description_semantic,
             moveit_config.planning_pipelines,
             moveit_config.robot_description_kinematics,
+            {"use_sim_time": use_sim_time},
         ],
         condition=IfCondition(tutorial_mode),
     )
@@ -85,6 +96,7 @@ def generate_launch_description():
             moveit_config.robot_description_semantic,
             moveit_config.planning_pipelines,
             moveit_config.robot_description_kinematics,
+            {"use_sim_time": use_sim_time},
         ],
         condition=UnlessCondition(tutorial_mode),
     )
@@ -96,6 +108,7 @@ def generate_launch_description():
         name="static_transform_publisher",
         output="log",
         arguments=["0.0", "0.0", "0.0", "0.0", "0.0", "0.0", "world", "panda_link0"],
+        parameters=[{"use_sim_time": use_sim_time}],
     )
 
     # Publish TF
@@ -104,7 +117,7 @@ def generate_launch_description():
         executable="robot_state_publisher",
         name="robot_state_publisher",
         output="both",
-        parameters=[moveit_config.robot_description],
+        parameters=[moveit_config.robot_description, {"use_sim_time": use_sim_time}],
     )
 
     # ros2_control using FakeSystem as hardware
@@ -116,7 +129,7 @@ def generate_launch_description():
     ros2_control_node = Node(
         package="controller_manager",
         executable="ros2_control_node",
-        parameters=[ros2_controllers_path],
+        parameters=[ros2_controllers_path, {"use_sim_time": use_sim_time}],
         remappings=[
             ("/controller_manager/robot_description", "/robot_description"),
         ],
@@ -131,18 +144,21 @@ def generate_launch_description():
             "--controller-manager",
             "/controller_manager",
         ],
+        parameters=[{"use_sim_time": use_sim_time}],
     )
 
     panda_arm_controller_spawner = Node(
         package="controller_manager",
         executable="spawner",
         arguments=["panda_arm_controller", "-c", "/controller_manager"],
+        parameters=[{"use_sim_time": use_sim_time}],
     )
 
     panda_hand_controller_spawner = Node(
         package="controller_manager",
         executable="spawner",
         arguments=["panda_hand_controller", "-c", "/controller_manager"],
+        parameters=[{"use_sim_time": use_sim_time}],
     )
 
     # Warehouse mongodb server
@@ -154,6 +170,7 @@ def generate_launch_description():
             {"warehouse_port": 33829},
             {"warehouse_host": "localhost"},
             {"warehouse_plugin": "warehouse_ros_mongo::MongoDatabaseConnection"},
+            {"use_sim_time": use_sim_time},
         ],
         output="screen",
         condition=IfCondition(db_config),
@@ -164,6 +181,7 @@ def generate_launch_description():
             tutorial_arg,
             db_arg,
             ros2_control_hardware_type,
+            use_sim_time_arg,
             rviz_node,
             rviz_node_tutorial,
             static_tf_node,
