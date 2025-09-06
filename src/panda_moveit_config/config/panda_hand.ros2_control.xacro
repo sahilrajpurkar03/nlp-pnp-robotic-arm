@@ -13,8 +13,8 @@
                     <param name="joint_states_topic">/isaac_joint_states</param>
                 </xacro:if> -->
                 <plugin>topic_based_ros2_control/TopicBasedSystem</plugin>
-                <param name="joint_commands_topic">/isaac_joint_commands</param>
-                <param name="joint_states_topic">/isaac_joint_states</param>
+                <param name="joint_commands_topic">/joint_commands</param>
+                <param name="joint_states_topic">/joint_states</param>
             </hardware>
             <joint name="panda_finger_joint1">
                 <command_interface name="position" />

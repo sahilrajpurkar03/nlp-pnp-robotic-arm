@@ -16,6 +16,11 @@ find_package(moveit_ros_planning_interface REQUIRED)
 # --- NEW: Find control_msgs for gripper ---
 find_package(control_msgs REQUIRED)
 
+install(PROGRAMS
+  scripts/arm_control_from_UI.py
+  DESTINATION lib/${PROJECT_NAME}
+)
+
 # --- Executable 1: move_arm_to_xyz ---
 add_executable(move_arm_to_xyz src/move_arm_to_xyz.cpp)
 ament_target_dependencies(move_arm_to_xyz
@@ -46,11 +51,22 @@ ament_target_dependencies(panda_pick_place
    control_msgs 
 )
 
+add_executable(panda_pose src/panda_pose.cpp)
+ament_target_dependencies(panda_pose
+   rclcpp
+   std_msgs
+   geometry_msgs
+   moveit_core
+   moveit_ros_planning_interface
+   control_msgs 
+)
+
 # Install all executables
 install(TARGETS
   move_arm_to_xyz
   move_gripper
   panda_pick_place
+  panda_pose
   DESTINATION lib/${PROJECT_NAME}
 )
 

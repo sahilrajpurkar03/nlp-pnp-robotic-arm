@@ -1,19 +1,79 @@
 #include <rclcpp/rclcpp.hpp>
 #include <moveit/move_group_interface/move_group_interface.h>
-#include <memory>
-#include <string>
-#include <cstdlib> // for std::atof
-#include <tf2/LinearMath/Quaternion.h>
+#include <moveit/robot_model_loader/robot_model_loader.h>
+#include <moveit/robot_state/robot_state.h>
 #include <geometry_msgs/msg/pose_stamped.hpp>
+#include <sensor_msgs/msg/joint_state.hpp>
+#include <std_msgs/msg/bool.hpp>
+#include <std_msgs/msg/float64_multi_array.hpp>
+#include <tf2/LinearMath/Quaternion.h>
 #include <thread>
 #include <chrono>
 #include <vector>
+#include <mutex>
+#include <string>
+#include <cstdlib>
 
-// -------------------- Fixed-Z convenience wrappers --------------------
+std::mutex joint_state_mutex;
+sensor_msgs::msg::JointState latest_joint_state;
+bool joint_state_received = false;
+
+// -------------------- Joint state callback --------------------
+void jointStateCallback(const sensor_msgs::msg::JointState::SharedPtr msg)
+{
+    std::lock_guard<std::mutex> lock(joint_state_mutex);
+    latest_joint_state = *msg;
+    joint_state_received = true;
+}
+
+// -------------------- FK helper --------------------
+geometry_msgs::msg::Pose getCurrentPoseFK(
+    moveit::core::RobotStatePtr kinematic_state,
+    const moveit::core::JointModelGroup* joint_model_group)
+{
+    std::lock_guard<std::mutex> lock(joint_state_mutex);
+
+    geometry_msgs::msg::Pose pose;
+    if (!joint_state_received)
+        return pose;  // zero pose if joint states not received yet
+
+    std::vector<double> joint_positions;
+    for (const auto &name : joint_model_group->getVariableNames())
+    {
+        auto it = std::find(latest_joint_state.name.begin(), latest_joint_state.name.end(), name);
+        if (it != latest_joint_state.name.end())
+        {
+            size_t index = std::distance(latest_joint_state.name.begin(), it);
+            joint_positions.push_back(latest_joint_state.position[index]);
+        }
+    }
+    kinematic_state->setJointGroupPositions(joint_model_group, joint_positions);
+
+    const Eigen::Isometry3d& ee_transform = kinematic_state->getGlobalLinkTransform(
+        joint_model_group->getLinkModelNames().back());
+
+    Eigen::Vector3d position = ee_transform.translation();
+    Eigen::Quaterniond orientation(ee_transform.rotation());
+
+    pose.position.x = position.x();
+    pose.position.y = position.y();
+    pose.position.z = position.z();
+    pose.orientation.x = orientation.x();
+    pose.orientation.y = orientation.y();
+    pose.orientation.z = orientation.z();
+    pose.orientation.w = orientation.w();
+
+    return pose;
+}
+
+// -------------------- Fixed-Z wrapper with logging --------------------
 bool move_to(double x, double y, double z,
              double roll, double pitch, double yaw,
-             moveit::planning_interface::MoveGroupInterface &move_group)
+             moveit::planning_interface::MoveGroupInterface &move_group,
+             const std::string &step_description)
 {
+    RCLCPP_INFO(rclcpp::get_logger("pick_place"), "%s", step_description.c_str());
+
     tf2::Quaternion q;
     q.setRPY(roll, pitch, yaw);
     q.normalize();
@@ -28,178 +88,121 @@ bool move_to(double x, double y, double z,
     target_pose.orientation.w = q.w();
 
     move_group.setPoseTarget(target_pose);
+
+    move_group.setPlanningTime(10.0);
+    move_group.setGoalPositionTolerance(0.01);
+    move_group.setGoalOrientationTolerance(0.05);
+
     moveit::planning_interface::MoveGroupInterface::Plan plan;
     if (move_group.plan(plan) == moveit::core::MoveItErrorCode::SUCCESS)
     {
         move_group.execute(plan);
         return true;
     }
-    else
+    RCLCPP_ERROR(rclcpp::get_logger("pick_place"), "Failed to plan to target pose");
+    return false;
+}
+
+// -------------------- Grasp feedback --------------------
+bool check_grasp_success()
+{
+    std::lock_guard<std::mutex> lock(joint_state_mutex);
+
+    if (!joint_state_received)
     {
-        RCLCPP_ERROR(rclcpp::get_logger("move_to"), "Failed to plan to target pose");
+        RCLCPP_WARN(rclcpp::get_logger("grasp"), "No joint states yet, cannot check grasp.");
         return false;
     }
-}
 
-// -------------------- Cartesian helpers --------------------
-bool move_cartesian_to(double x, double y, double z,
-                       double roll, double pitch, double yaw,
-                       moveit::planning_interface::MoveGroupInterface &move_group)
-{
-    tf2::Quaternion q;
-    q.setRPY(roll, pitch, yaw);
-    q.normalize();
+    auto it1 = std::find(latest_joint_state.name.begin(), latest_joint_state.name.end(), "panda_finger_joint1");
+    auto it2 = std::find(latest_joint_state.name.begin(), latest_joint_state.name.end(), "panda_finger_joint2");
 
-    geometry_msgs::msg::Pose target_pose;
-    target_pose.position.x = x;
-    target_pose.position.y = y;
-    target_pose.position.z = z;
-    target_pose.orientation.x = q.x();
-    target_pose.orientation.y = q.y();
-    target_pose.orientation.z = q.z();
-    target_pose.orientation.w = q.w();
-
-    std::vector<geometry_msgs::msg::Pose> waypoints;
-    waypoints.push_back(target_pose);
-
-    moveit_msgs::msg::RobotTrajectory trajectory;
-    double fraction = move_group.computeCartesianPath(waypoints, 0.01, 0.0, trajectory);
-
-    if (fraction > 0.99)
+    if (it1 != latest_joint_state.name.end() && it2 != latest_joint_state.name.end())
     {
-        move_group.execute(trajectory);
-        return true;
+        size_t idx1 = std::distance(latest_joint_state.name.begin(), it1);
+        size_t idx2 = std::distance(latest_joint_state.name.begin(), it2);
+
+        double pos1 = latest_joint_state.position[idx1];
+        double pos2 = latest_joint_state.position[idx2];
+
+        if (pos1 <= 0.001 && pos2 <= 0.001)
+        {
+            RCLCPP_WARN(rclcpp::get_logger("grasp"), "❌ Grasp likely failed (both fingers fully closed).");
+            return false;
+        }
+        else
+        {
+            RCLCPP_INFO(rclcpp::get_logger("grasp"), "✅ Object grasped successfully.");
+            return true;
+        }
     }
-    else
-    {
-        RCLCPP_ERROR(rclcpp::get_logger("move_cartesian_to"), "Failed to compute Cartesian path");
-        return false;
-    }
+
+    RCLCPP_ERROR(rclcpp::get_logger("grasp"), "Finger joints not found in joint states.");
+    return false;
 }
 
-// -------------------- Helper motions --------------------
-bool move_to_xy_at_approach(double x, double y, double yaw,
-                            moveit::planning_interface::MoveGroupInterface &move_group, double approach_z)
-{
-    // Cartesian approach
-    return move_cartesian_to(x, y, approach_z, M_PI, 0.0, yaw, move_group);
-}
-
-bool move_to_xy_at_pick(double x, double y, double yaw,
-                        moveit::planning_interface::MoveGroupInterface &move_group, double pick_z)
-{
-    return move_cartesian_to(x, y, pick_z, M_PI, 0.0, yaw, move_group);
-}
-
-bool move_to_xy_at_carry(double x, double y, double yaw,
-                         moveit::planning_interface::MoveGroupInterface &move_group, double carry_z)
-{
-    return move_to(x, y, carry_z, M_PI, 0.0, yaw, move_group); // joint-space
-}
-
-// -------------------- Gripper helpers --------------------
-void open_gripper(moveit::planning_interface::MoveGroupInterface &hand_group)
-{
-    hand_group.setJointValueTarget("panda_finger_joint1", 0.03);
-    hand_group.setJointValueTarget("panda_finger_joint2", 0.03);
-
-    moveit::planning_interface::MoveGroupInterface::Plan plan;
-    if (hand_group.plan(plan) == moveit::core::MoveItErrorCode::SUCCESS)
-    {
-        hand_group.execute(plan);
-        std::this_thread::sleep_for(std::chrono::seconds(2));
-    }
-}
-
-void close_gripper(moveit::planning_interface::MoveGroupInterface &hand_group)
-{
-    hand_group.setJointValueTarget("panda_finger_joint1", 0.001);
-    hand_group.setJointValueTarget("panda_finger_joint2", 0.001);
-
-    moveit::planning_interface::MoveGroupInterface::Plan plan;
-    if (hand_group.plan(plan) == moveit::core::MoveItErrorCode::SUCCESS)
-    {
-        hand_group.execute(plan);
-        std::this_thread::sleep_for(std::chrono::seconds(2));
-    }
-}
-
-// -------------------- Full pick-and-place workflow --------------------
+// -------------------- Pick-and-place workflow --------------------
 void pick_and_place(double x_pick, double y_pick,
                     double x_drop, double y_drop,
                     moveit::planning_interface::MoveGroupInterface &move_group,
                     moveit::planning_interface::MoveGroupInterface &hand_group,
-                    const geometry_msgs::msg::Pose &home_pose,
-                    double approach_z, double pick_z, double carry_z)
+                    moveit::core::RobotStatePtr kinematic_state,
+                    const moveit::core::JointModelGroup* joint_model_group,
+                    double approach_z, double pick_z, double carry_z,
+                    rclcpp::Publisher<std_msgs::msg::Bool>::SharedPtr status_pub)
 {
-    // Approach pick location (Cartesian)
-    move_to_xy_at_approach(x_pick, y_pick, 0.0, move_group, approach_z);
+    std_msgs::msg::Bool msg;
+    msg.data = false;
+    status_pub->publish(msg);
 
-    open_gripper(hand_group);
+    geometry_msgs::msg::Pose home_pose = getCurrentPoseFK(kinematic_state, joint_model_group);
 
-    // Lower to pick (Cartesian)
-    move_to_xy_at_pick(x_pick, y_pick, 0.0, move_group, pick_z);
+    move_to(x_pick, y_pick, approach_z, M_PI, 0, 0, move_group, "Approaching pick position...");
+    hand_group.setJointValueTarget("panda_finger_joint1", 0.03);
+    hand_group.move();
 
-    close_gripper(hand_group);
+    move_to(x_pick, y_pick, pick_z, M_PI, 0, 0, move_group, "Moving down to pick object...");
+    hand_group.setJointValueTarget("panda_finger_joint1", 0.001);
+    hand_group.move();
 
-    // Lift after pick (joint-space)
-    move_to_xy_at_carry(x_pick, y_pick, 0.0, move_group, carry_z);
-
-    // Move to drop location (Cartesian in XY)
-    move_to_xy_at_carry(x_drop, y_drop, 0.0, move_group, carry_z);
-
-    // Lower to drop (Cartesian)
-    move_to_xy_at_pick(x_drop, y_drop, 0.0, move_group, pick_z);
-
-    open_gripper(hand_group);
-
-    // Lift after drop (joint-space)
-    move_to_xy_at_carry(x_drop, y_drop, 0.0, move_group, carry_z);
-
-    // Return to safe pose & ready (joint-space)
-    geometry_msgs::msg::Pose safe_pose = move_group.getCurrentPose().pose;
-    safe_pose.position.z += 0.05;
-    move_group.setPoseTarget(safe_pose);
-    move_group.move();
-
-    bool returned = false;
-    for (int i = 0; i < 3 && !returned; i++)
+    if (!check_grasp_success())
     {
-        moveit::planning_interface::MoveGroupInterface::Plan ready_plan;
-        move_group.setNamedTarget("ready");
-
-        if (move_group.plan(ready_plan) == moveit::core::MoveItErrorCode::SUCCESS)
-        {
-            if (move_group.execute(ready_plan) == moveit::core::MoveItErrorCode::SUCCESS)
-            {
-                RCLCPP_INFO(rclcpp::get_logger("pick_and_place"), "Returned to 'ready' pose.");
-                returned = true;
-            }
-        }
+        move_to(x_pick, y_pick, pick_z - 0.01, M_PI, 0, 0, move_group, "Retrying pick with lower Z...");
+        hand_group.setJointValueTarget("panda_finger_joint1", 0.001);
+        hand_group.move();
     }
 
-    if (!returned)
-        RCLCPP_ERROR(rclcpp::get_logger("pick_and_place"), "Failed to return to 'ready' pose!");
+    move_to(x_pick, y_pick, carry_z, M_PI, 0, 0, move_group, "Lifting object to carrying height...");
+    move_to(x_drop, y_drop, carry_z, M_PI, 0, 0, move_group, "Moving object to drop position...");
+    move_to(x_drop, y_drop, pick_z, M_PI, 0, 0, move_group, "Lowering object for drop...");
+    hand_group.setJointValueTarget("panda_finger_joint1", 0.03);
+    hand_group.move();
+    move_to(x_drop, y_drop, carry_z, M_PI, 0, 0, move_group, "Moving up after drop...");
+    home_pose.position.z += 0.05;
+    move_group.setPoseTarget(home_pose);
+    move_group.move();
+    move_group.setNamedTarget("ready");
+    move_group.move();
+
+    msg.data = true;
+    status_pub->publish(msg);
 }
 
 // -------------------- Main --------------------
 int main(int argc, char **argv)
 {
-    if (argc != 3)
-    {
-        std::cerr << "Usage: panda_pick_place X Y \n";
-        return 1;
-    }
-
-    double x = std::atof(argv[1]);
-    double y = std::atof(argv[2]);
-
     rclcpp::init(argc, argv);
     auto node = rclcpp::Node::make_shared("panda_pick_place");
 
-    double approach_z_local = 0.5;
-    double pick_z_local     = 0.2;
-    double carry_z_local    = 0.5;
+    double approach_z = 0.23;
+    double pick_z = 0.12;
+    double carry_z = 0.3;
+    double init_angle = -0.3825;
+
+    auto sub_joint = node->create_subscription<sensor_msgs::msg::JointState>(
+        "/joint_states", 10, jointStateCallback);
+
+    auto status_pub = node->create_publisher<std_msgs::msg::Bool>("/robot_status", 10);
 
     auto param_client = std::make_shared<rclcpp::SyncParametersClient>(node, "/move_group");
     while (!param_client->wait_for_service(std::chrono::seconds(1)))
@@ -209,39 +212,42 @@ int main(int argc, char **argv)
     std::string srdf = param_client->get_parameter<std::string>("robot_description_semantic");
     node->declare_parameter("robot_description", urdf);
     node->declare_parameter("robot_description_semantic", srdf);
-
-    node->declare_parameter("approach_z", approach_z_local);
-    node->declare_parameter("pick_z", pick_z_local);
-    node->declare_parameter("carry_z", carry_z_local);
-
-    approach_z_local = node->get_parameter("approach_z").as_double();
-    pick_z_local     = node->get_parameter("pick_z").as_double();
-    carry_z_local    = node->get_parameter("carry_z").as_double();
-
-    RCLCPP_INFO(node->get_logger(), "Z heights: approach=%f, pick=%f, carry=%f",
-                approach_z_local, pick_z_local, carry_z_local);
-
-    auto cb_handle = node->add_on_set_parameters_callback(
-        [&approach_z_local, &pick_z_local, &carry_z_local, &node](const std::vector<rclcpp::Parameter> &params) {
-            for (auto &p : params)
-            {
-                if (p.get_name() == "approach_z") approach_z_local = p.as_double();
-                else if (p.get_name() == "pick_z") pick_z_local = p.as_double();
-                else if (p.get_name() == "carry_z") carry_z_local = p.as_double();
-            }
-            rcl_interfaces::msg::SetParametersResult result;
-            result.successful = true;
-            return result;
-        });
+    RCLCPP_INFO(node->get_logger(), "URDF and SRDF loaded successfully.");
 
     moveit::planning_interface::MoveGroupInterface move_group(node, "panda_arm");
     moveit::planning_interface::MoveGroupInterface hand_group(node, "hand");
 
-    geometry_msgs::msg::Pose home_pose = move_group.getCurrentPose().pose;
+    move_group.setPlanningTime(10.0);
+    move_group.setGoalPositionTolerance(0.01);
+    move_group.setGoalOrientationTolerance(0.05);
 
-    pick_and_place(x, y, 0.6, -0.4, move_group, hand_group,
-                   home_pose, approach_z_local, pick_z_local, carry_z_local);
+    auto robot_model_loader = std::make_shared<robot_model_loader::RobotModelLoader>(node, "robot_description");
+    moveit::core::RobotModelPtr kinematic_model = robot_model_loader->getModel();
+    auto kinematic_state = std::make_shared<moveit::core::RobotState>(kinematic_model);
+    const moveit::core::JointModelGroup* joint_model_group = kinematic_model->getJointModelGroup("panda_arm");
 
+    rclcpp::executors::SingleThreadedExecutor exec;
+    exec.add_node(node);
+    for (int i = 0; i < 20; ++i)
+    {
+        exec.spin_some();
+        std::this_thread::sleep_for(std::chrono::milliseconds(200));
+    }
+
+    // -------------------- Subscriber for target points --------------------
+    auto sub_target = node->create_subscription<std_msgs::msg::Float64MultiArray>(
+        "/target_point", 10,
+        [&](const std_msgs::msg::Float64MultiArray::SharedPtr msg) {
+            double x = msg->data[0];
+            double y = msg->data[1];
+            double yaw_offset = msg->data[2];
+
+            pick_and_place(x, y, -0.3, -0.3, move_group, hand_group,
+                           kinematic_state, joint_model_group,
+                           approach_z, pick_z, carry_z, status_pub);
+        });
+
+    exec.spin();
     rclcpp::shutdown();
     return 0;
 }

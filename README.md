@@ -63,12 +63,12 @@ cx = width / 2
 cy = height / 2
 
 print(f"fx={fx}, fy={fy}, cx={cx}, cy={cy}")
-
-# demo launch for panda and motion planning in rviz isaacsim
+```
+## demo launch for panda and motion planning in rviz isaacsim
 1. open isaacsim and our .usd and start simulation
 2. launch rviz : ros2 launch panda_moveit_config demo.launch.py 
 3. ros2 run panda_moveit_config move_arm_to_xyz 0.0 0.0 0.0 (z is hardcoded in code)
-```
+
 
 ## Step perform for chatbot
 ```bash
@@ -84,5 +84,27 @@ llm_mapper.py          # Ollama / transformers wrapper
 
 for executing chatbot
 ```bash
+cd ~/Isaac_Project/pickPlaceChatMoveitBot_ws/
+
+conda activate ros2_humble_py310
+
+source /opt/ros/humble/setup.bash
+
+source install/setup.bash
+
 ./pick_place_chatbot_ui/launch.sh 
 ```
+
+
+## moveit command 
+
+cd Isaac_Project/pickPlaceChatMoveitBot_ws/
+
+source /opt/ros/humble/setup.bash
+
+colcon build
+
+source install/setup.bash  
+
+ros2 launch ur5_moveit_config demo.launch.py 
+

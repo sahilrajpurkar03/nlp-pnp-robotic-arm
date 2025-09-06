@@ -36,8 +36,8 @@ class TargetPublisher(Node):
         self.cx = 960
         self.cy = 540
         self.z = 0.7
-        self.init_x = 0.59066
-        self.init_y = 0.03
+        self.init_x = 0.43076
+        self.init_y = -0.03
 
     def cmd_callback(self, msg: String):
         self.target_class = msg.data.strip()
@@ -69,7 +69,7 @@ class TargetPublisher(Node):
             else:
                 denom = points[1][0] - points[2][0]
                 angle = math.pi/2 if denom == 0 else math.atan2(points[1][1]-points[2][1], denom)
-            angle = math.pi/2 - angle
+            # angle = math.pi/2 - angle
 
             # Publish once
             msg = Float64MultiArray(data=[x, y, angle])
