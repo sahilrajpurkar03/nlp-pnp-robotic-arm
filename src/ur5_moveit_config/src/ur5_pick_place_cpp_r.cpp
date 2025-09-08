@@ -1,10 +1,12 @@
 #include <rclcpp/rclcpp.hpp>
 #include <moveit/move_group_interface/move_group_interface.h>
 #include <geometry_msgs/msg/pose.hpp>
-#include <tf2_geometry_msgs/tf2_geometry_msgs.hpp>
 #include <moveit_msgs/msg/robot_trajectory.hpp>
+#include <tf2/LinearMath/Quaternion.h>
+#include <tf2_geometry_msgs/tf2_geometry_msgs.hpp>
 #include <vector>
 #include <thread>
+#include <cmath>
 
 // --------------------- Function: Move to ready pose ---------------------
 bool moveToReadyPose(moveit::planning_interface::MoveGroupInterface &move_group)
@@ -18,6 +20,18 @@ bool moveToReadyPose(moveit::planning_interface::MoveGroupInterface &move_group)
     {
         RCLCPP_INFO(rclcpp::get_logger("moveToReadyPose"), "Moving to arm_ready pose...");
         move_group.execute(plan);
+
+        // 🔎 Print current EE pose
+        geometry_msgs::msg::Pose ee_pose = move_group.getCurrentPose().pose;
+        RCLCPP_INFO(rclcpp::get_logger("moveToReadyPose"),
+                    "EE Pose in world (base_link):\n  Position -> x: %.3f, y: %.3f, z: %.3f\n  Orientation -> x: %.3f, y: %.3f, z: %.3f, w: %.3f",
+                    ee_pose.position.x,
+                    ee_pose.position.y,
+                    ee_pose.position.z,
+                    ee_pose.orientation.x,
+                    ee_pose.orientation.y,
+                    ee_pose.orientation.z,
+                    ee_pose.orientation.w);
         return true;
     }
     else
@@ -27,35 +41,27 @@ bool moveToReadyPose(moveit::planning_interface::MoveGroupInterface &move_group)
     }
 }
 
-// --------------------- Function: Move end-effector in local XY plane ---------------------
-bool moveInEE_XY(moveit::planning_interface::MoveGroupInterface &move_group,
-                 double dx, double dy)
+// --------------------- Function: Move EE to absolute (X,Y) in world ---------------------
+bool moveToWorldXY(moveit::planning_interface::MoveGroupInterface &move_group,
+                   double target_x, double target_y)
 {
     geometry_msgs::msg::Pose current_pose = move_group.getCurrentPose().pose;
 
-    tf2::Vector3 ee_z(0, 0, -1);
-    ee_z.normalize();
-
-    tf2::Vector3 ee_x(1, 0, 0);
-    ee_x = ee_x - ee_x.dot(ee_z) * ee_z;
-    ee_x.normalize();
-
-    tf2::Vector3 ee_y = ee_z.cross(ee_x);
-    ee_y.normalize();
-
-    tf2::Vector3 translation = ee_x * dx + ee_y * dy;
-
     geometry_msgs::msg::Pose target_pose = current_pose;
-    target_pose.position.x += translation.x();
-    target_pose.position.y += translation.y();
-    target_pose.position.z += translation.z();
-    target_pose.orientation = current_pose.orientation;
+    target_pose.position.x = target_x;
+    target_pose.position.y = target_y;
+
+    RCLCPP_INFO(rclcpp::get_logger("moveToWorldXY"),
+                "Target Pose in world:\n  Position -> x: %.3f, y: %.3f, z: %.3f",
+                target_pose.position.x,
+                target_pose.position.y,
+                target_pose.position.z);
 
     std::vector<geometry_msgs::msg::Pose> waypoints;
     waypoints.push_back(target_pose);
 
     moveit_msgs::msg::RobotTrajectory trajectory;
-    double fraction = move_group.computeCartesianPath(waypoints, 0.005, 0.0, trajectory);
+    double fraction = move_group.computeCartesianPath(waypoints, 0.02, 0.0, trajectory);
 
     if (fraction > 0.99)
     {
@@ -64,25 +70,76 @@ bool moveInEE_XY(moveit::planning_interface::MoveGroupInterface &move_group,
     }
     else
     {
-        RCLCPP_ERROR(rclcpp::get_logger("moveInEE_XY"), "Failed to compute horizontal XY path. Fraction: %f", fraction);
+        RCLCPP_ERROR(rclcpp::get_logger("moveToWorldXY"),
+                     "Failed to compute Cartesian path. Fraction: %f", fraction);
         return false;
     }
 }
 
-// --------------------- Function: Move end-effector in Z ---------------------
-bool moveInEE_Z(moveit::planning_interface::MoveGroupInterface &move_group, double dz)
+// --------------------- Function: Rotate EE yaw ---------------------
+bool rotateGripperYaw(moveit::planning_interface::MoveGroupInterface &move_group,
+                      double yaw)
 {
     geometry_msgs::msg::Pose current_pose = move_group.getCurrentPose().pose;
 
+    // Convert current orientation to roll-pitch-yaw
+    tf2::Quaternion q_orig, q_rot;
+    tf2::fromMsg(current_pose.orientation, q_orig);
+
+    double roll, pitch, cur_yaw;
+    tf2::Matrix3x3(q_orig).getRPY(roll, pitch, cur_yaw);
+
+    // Build new quaternion with given yaw, keep roll/pitch
+    q_rot.setRPY(roll, pitch, yaw);
+    q_rot.normalize();
+
     geometry_msgs::msg::Pose target_pose = current_pose;
-    target_pose.position.z += dz;
-    target_pose.orientation = current_pose.orientation;
+    geometry_msgs::msg::Quaternion q_msg = tf2::toMsg(q_rot);
+    target_pose.orientation = q_msg;
+
+
+    RCLCPP_INFO(rclcpp::get_logger("rotateGripperYaw"),
+                "Rotating gripper to yaw=%.3f rad (%.1f deg)", yaw, yaw * 180.0 / M_PI);
 
     std::vector<geometry_msgs::msg::Pose> waypoints;
     waypoints.push_back(target_pose);
 
     moveit_msgs::msg::RobotTrajectory trajectory;
-    double fraction = move_group.computeCartesianPath(waypoints, 0.005, 0.0, trajectory);
+    double fraction = move_group.computeCartesianPath(waypoints, 0.01, 0.0, trajectory);
+
+    if (fraction > 0.85)
+    {
+        move_group.execute(trajectory);
+        return true;
+    }
+    else
+    {
+        RCLCPP_ERROR(rclcpp::get_logger("rotateGripperYaw"),
+                     "Failed to compute yaw rotation path. Fraction: %f", fraction);
+        return false;
+    }
+}
+
+// --------------------- Function: Move EE downward in Z ---------------------
+bool moveDownZ(moveit::planning_interface::MoveGroupInterface &move_group,
+               double dz)
+{
+    geometry_msgs::msg::Pose current_pose = move_group.getCurrentPose().pose;
+
+    geometry_msgs::msg::Pose target_pose = current_pose;
+    target_pose.position.z -= dz;  // go down by dz
+
+    RCLCPP_INFO(rclcpp::get_logger("moveDownZ"),
+                "Target Pose going down:\n  Position -> x: %.3f, y: %.3f, z: %.3f",
+                target_pose.position.x,
+                target_pose.position.y,
+                target_pose.position.z);
+
+    std::vector<geometry_msgs::msg::Pose> waypoints;
+    waypoints.push_back(target_pose);
+
+    moveit_msgs::msg::RobotTrajectory trajectory;
+    double fraction = move_group.computeCartesianPath(waypoints, 0.02, 0.0, trajectory);
 
     if (fraction > 0.99)
     {
@@ -91,60 +148,149 @@ bool moveInEE_Z(moveit::planning_interface::MoveGroupInterface &move_group, doub
     }
     else
     {
-        RCLCPP_ERROR(rclcpp::get_logger("moveInEE_Z"), "Failed to compute Z path. Fraction: %f", fraction);
+        RCLCPP_ERROR(rclcpp::get_logger("moveDownZ"),
+                     "Failed to compute Z downward path. Fraction: %f", fraction);
         return false;
     }
 }
 
-// --------------------- Function: Move end-effector to arbitrary pose (non-Cartesian) ---------------------
-bool moveToPose(moveit::planning_interface::MoveGroupInterface &move_group,
-                const geometry_msgs::msg::Pose &target_pose,
-                const std::string &log_name = "moveToPose")
+// --------------------- Function: Close gripper using MoveIt named target ---------------------
+bool closeGripper(moveit::planning_interface::MoveGroupInterface &gripper_group)
 {
-    move_group.setPoseTarget(target_pose);
+    gripper_group.setStartStateToCurrentState();
+    gripper_group.setNamedTarget("close");
+
+    moveit::planning_interface::MoveGroupInterface::Plan plan;
+    auto success = (gripper_group.plan(plan) == moveit::core::MoveItErrorCode::SUCCESS);
+
+    if (success)
+    {
+        RCLCPP_INFO(rclcpp::get_logger("closeGripper"), "Closing gripper (named target: close)...");
+        gripper_group.execute(plan);
+        return true;
+    }
+    else
+    {
+        RCLCPP_ERROR(rclcpp::get_logger("closeGripper"), "Failed to plan to gripper close pose");
+        return false;
+    }
+}
+
+// --------------------- Function: Move EE upward in Z ---------------------
+bool moveUpZ(moveit::planning_interface::MoveGroupInterface &move_group,
+             double dz)
+{
+    geometry_msgs::msg::Pose current_pose = move_group.getCurrentPose().pose;
+
+    geometry_msgs::msg::Pose target_pose = current_pose;
+    target_pose.position.z += dz;  // go up by dz
+
+    RCLCPP_INFO(rclcpp::get_logger("moveUpZ"),
+                "Target Pose going up:\n  Position -> x: %.3f, y: %.3f, z: %.3f",
+                target_pose.position.x,
+                target_pose.position.y,
+                target_pose.position.z);
+
+    std::vector<geometry_msgs::msg::Pose> waypoints;
+    waypoints.push_back(target_pose);
+
+    moveit_msgs::msg::RobotTrajectory trajectory;
+    double fraction = move_group.computeCartesianPath(waypoints, 0.02, 0.0, trajectory);
+
+    if (fraction > 0.85)
+    {
+        move_group.execute(trajectory);
+        return true;
+    }
+    else
+    {
+        RCLCPP_ERROR(rclcpp::get_logger("moveUpZ"),
+                     "Failed to compute Z upward path. Fraction: %f", fraction);
+        return false;
+    }
+}
+
+// --------------------- Function: Rotate base joint ---------------------
+bool rotateBase(moveit::planning_interface::MoveGroupInterface &move_group,
+                double delta_angle)
+{
+    // Get current joint values
+    std::vector<double> joint_group_positions = move_group.getCurrentJointValues();
+
+    // Joint[0] = base rotation (shoulder_pan_joint)
+    double current_angle = joint_group_positions[0];
+    joint_group_positions[0] = current_angle + delta_angle;  // add delta (e.g., M_PI for 180°)
+
+    move_group.setJointValueTarget(joint_group_positions);
 
     moveit::planning_interface::MoveGroupInterface::Plan plan;
     bool success = (move_group.plan(plan) == moveit::core::MoveItErrorCode::SUCCESS);
+
     if (success)
     {
-        RCLCPP_INFO(rclcpp::get_logger(log_name),
-                    "Executing move to pose: x=%.3f, y=%.3f, z=%.3f",
-                    target_pose.position.x, target_pose.position.y, target_pose.position.z);
+        RCLCPP_INFO(rclcpp::get_logger("rotateBase"),
+                    "Rotating base joint by %.3f rad (%.1f deg)",
+                    delta_angle, delta_angle * 180.0 / M_PI);
         move_group.execute(plan);
         return true;
     }
     else
     {
-        RCLCPP_ERROR(rclcpp::get_logger(log_name), "Failed to plan to target pose!");
+        RCLCPP_ERROR(rclcpp::get_logger("rotateBase"),
+                     "Failed to plan base rotation");
         return false;
     }
 }
 
+// --------------------- Function: Open gripper using MoveIt named target ---------------------
+bool openGripper(moveit::planning_interface::MoveGroupInterface &gripper_group)
+{
+    gripper_group.setStartStateToCurrentState();
+    gripper_group.setNamedTarget("open");
+
+    moveit::planning_interface::MoveGroupInterface::Plan plan;
+    auto success = (gripper_group.plan(plan) == moveit::core::MoveItErrorCode::SUCCESS);
+
+    if (success)
+    {
+        RCLCPP_INFO(rclcpp::get_logger("openGripper"), "Opening gripper (named target: open)...");
+        gripper_group.execute(plan);
+        return true;
+    }
+    else
+    {
+        RCLCPP_ERROR(rclcpp::get_logger("openGripper"), "Failed to plan to gripper open pose");
+        return false;
+    }
+}
+
+
+
 // --------------------- Main ---------------------
 int main(int argc, char **argv)
 {
-    if (argc != 3)
+    if (argc != 4)
     {
-        std::cerr << "Usage: ur5_xy_approach <dx> <dy>\n";
+        std::cerr << "Usage: ur5_xy_yaw <target_x> <target_y> <yaw_rad>\n";
         return 1;
     }
 
-    double dx = std::atof(argv[1]);
-    double dy = std::atof(argv[2]);
-    double z_pick = -0.2;
-    double z_drop = -0.4;
-    double drop_x = 0.2;
-    double drop_y = -0.6;
+    double target_x = std::atof(argv[1]);
+    double target_y = std::atof(argv[2]);
+    double yaw = std::atof(argv[3]);  // yaw in radians
 
     rclcpp::init(argc, argv);
-    auto node = rclcpp::Node::make_shared("ur5_xy_approach");
+    auto node = rclcpp::Node::make_shared("ur5_xy_yaw_approach");
 
     rclcpp::executors::SingleThreadedExecutor executor;
     executor.add_node(node);
     std::thread spinner([&executor]() { executor.spin(); });
 
-    const std::string PLANNING_GROUP = "arm";
+    const std::string PLANNING_GROUP = "arm";  
     moveit::planning_interface::MoveGroupInterface move_group(node, PLANNING_GROUP);
+
+    const std::string GRIPPER_GROUP = "gripper";
+    moveit::planning_interface::MoveGroupInterface gripper_group(node, GRIPPER_GROUP);
 
     RCLCPP_INFO(node->get_logger(), "Planning frame: %s", move_group.getPlanningFrame().c_str());
     RCLCPP_INFO(node->get_logger(), "End effector link: %s", move_group.getEndEffectorLink().c_str());
@@ -152,88 +298,102 @@ int main(int argc, char **argv)
     // 1️⃣ Move to ready pose
     if (!moveToReadyPose(move_group))
     {
-        RCLCPP_ERROR(node->get_logger(), "Cannot move to ready pose. Exiting.");
         executor.cancel();
         spinner.join();
         rclcpp::shutdown();
         return 1;
-    }
+    }    
 
-    // 2️⃣ Move in XY plane to pick location
-    if (!moveInEE_XY(move_group, dx, dy))
+    // 2️⃣ Move EE to absolute (X,Y) in world
+    if (!moveToWorldXY(move_group, target_x, target_y))
     {
-        RCLCPP_ERROR(node->get_logger(), "Cannot move in EE XY plane. Exiting.");
         executor.cancel();
         spinner.join();
         rclcpp::shutdown();
         return 1;
     }
 
-    // 3️⃣ Move down for picking
-    if (!moveInEE_Z(move_group, z_pick))
+    // 3️⃣ Rotate EE yaw
+    if (!rotateGripperYaw(move_group, yaw))
     {
-        RCLCPP_ERROR(node->get_logger(), "Cannot move down to pick. Exiting.");
         executor.cancel();
         spinner.join();
         rclcpp::shutdown();
         return 1;
     }
 
-    // 4️⃣ Move up after picking
-    if (!moveInEE_Z(move_group, -z_pick))
+    // 4️⃣ Move EE straight down by 0.1m
+    if (!moveDownZ(move_group, 0.228))
     {
-        RCLCPP_ERROR(node->get_logger(), "Cannot move up. Exiting.");
         executor.cancel();
         spinner.join();
         rclcpp::shutdown();
         return 1;
     }
 
-    // 5️⃣ Move to drop location using normal planning
-    geometry_msgs::msg::Pose drop_pose = move_group.getCurrentPose().pose;
-    drop_pose.position.x = drop_x;
-    drop_pose.position.y = drop_y;
-    drop_pose.position.z = 0.391;  // safe drop height
-    if (!moveToPose(move_group, drop_pose, "DropXYMove"))
+    // 5️⃣ Close gripper
+    if (!closeGripper(gripper_group))
     {
-        RCLCPP_ERROR(node->get_logger(), "Cannot move to drop location. Exiting.");
         executor.cancel();
         spinner.join();
         rclcpp::shutdown();
         return 1;
     }
 
-    // 6️⃣ Move down to drop
-    if (!moveInEE_Z(move_group, z_drop))
+    // 6️⃣ Move EE back up by 0.221m
+    if (!moveUpZ(move_group, 0.228))
     {
-        RCLCPP_ERROR(node->get_logger(), "Cannot move down to drop. Exiting.");
         executor.cancel();
         spinner.join();
         rclcpp::shutdown();
         return 1;
-    }
+    }    
 
-    // 7️⃣ Move up after drop
-    if (!moveInEE_Z(move_group, -z_drop))
+    // 7️⃣ Rotate robot base by 180° (pi radians)
+    if (!rotateBase(move_group, M_PI))
     {
-        RCLCPP_ERROR(node->get_logger(), "Cannot move up after drop. Exiting.");
         executor.cancel();
         spinner.join();
         rclcpp::shutdown();
         return 1;
     }
 
-    // 8️⃣ Return to ready pose using normal planning
-    move_group.setPlanningTime(10.0);      // allow longer planning
-    move_group.setNumPlanningAttempts(10); // try multiple times
+    // 8️⃣ Move EE straight down again by 0.228m (for placement)
+    if (!moveDownZ(move_group, 0.2))
+    {
+        executor.cancel();
+        spinner.join();
+        rclcpp::shutdown();
+        return 1;
+    }   
+    
+    // 9️⃣ Open gripper (place object)
+    if (!openGripper(gripper_group))
+    {
+        executor.cancel();
+        spinner.join();
+        rclcpp::shutdown();
+        return 1;
+    }
+
+    // 10️⃣ Move EE back up by 0.228m (after placing)
+    if (!moveUpZ(move_group, 0.2))
+    {
+        executor.cancel();
+        spinner.join();
+        rclcpp::shutdown();
+        return 1;
+    }
+
+    // 11️⃣ Move to ready pose
     if (!moveToReadyPose(move_group))
     {
-        RCLCPP_ERROR(node->get_logger(), "Failed to return to arm_ready pose.");
-    }
-    else
-    {
-        RCLCPP_INFO(node->get_logger(), "Returned to arm_ready pose successfully.");
-    }
+        executor.cancel();
+        spinner.join();
+        rclcpp::shutdown();
+        return 1;
+    }  
+
 
     executor.cancel();
     spinner.join();

@@ -1,0 +1,28 @@
+[33m67274fb[m[33m ([m[1;36mHEAD -> [m[1;32mmaster[m[33m)[m update:  pick-place s initial working
+[33mce379be[m Fix: sim time issue b/w moveit ros and isaac
+[33mee8303a[m FIx: single target point publish
+[33mcd404a7[m Update: chatbot launch file
+[33mc829a87[m Update: chatbot scrolling
+[33mdf767df[m Added: Chatbot
+[33m0e85379[m Update: pick and place hybrid approach (cartesian + joint_control)
+[33m14ef350[m Update: panda pick place movement with gripper motion
+[33m0ff2970[m Update: move gripper script using gripper cmd
+[33mcd6eec7[m Update: move to xy...go up-down by z
+[33mbb59da6[m Update: strictly move the robot in cartesian plane
+[33m1efd7bc[m test commit
+[33m53ac7d9[m Update: Panda pick place move to x,y co-ord with fixed z
+[33m057dbf1[m Added: moveit script to target pose
+[33m4b6d23a[m Add: target pose publisher
+[33mb090053[m Fix: demo launch file error
+[33m65b8f5e[m Added: Working moveit config and urdf for Panda robot
+[33mf5b4e8c[m Merge remote-tracking branch 'origin/master' merging commits
+[33m2a22ba0[m Update: modified moveit package
+[33m2b8d5a5[m Added: Yolov8_obb detection package
+[33mf922efe[m Added: Robot_motion_package
+[33m9d8f1ae[m Update: Changed gripper and moveit config
+[33m8b3a9ad[m Added: moveit config
+[33m5406f54[m Added: New urdf and fixed the gripper
+[33mc030162[m Added: Rviz launch file with default config
+[33mf8b7043[m Merge branch 'master' of https://github.com/sahilrajpurkar03/FrankaChatPicker
+[33m95f4ded[m Added: Robot urdf
+[33m49f4524[m Initial commit

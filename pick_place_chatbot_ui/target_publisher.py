@@ -37,7 +37,7 @@ class TargetPublisher(Node):
         self.cy = 540
         self.z = 0.7
         self.init_x = 0.43076
-        self.init_y = -0.03
+        self.init_y = -0.13
 
     def cmd_callback(self, msg: String):
         self.target_class = msg.data.strip()

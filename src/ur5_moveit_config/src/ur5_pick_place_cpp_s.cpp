@@ -197,7 +197,7 @@ bool moveUpZ(moveit::planning_interface::MoveGroupInterface &move_group,
     moveit_msgs::msg::RobotTrajectory trajectory;
     double fraction = move_group.computeCartesianPath(waypoints, 0.005, 0.0, trajectory);
 
-    if (fraction > 0.99)
+    if (fraction > 0.85)
     {
         move_group.execute(trajectory);
         return true;
@@ -359,7 +359,7 @@ int main(int argc, char **argv)
     }
 
     // 8️⃣ Move EE straight down again by 0.228m (for placement)
-    if (!moveDownZ(move_group, 0.15))
+    if (!moveDownZ(move_group, 0.2))
     {
         executor.cancel();
         spinner.join();
@@ -377,7 +377,7 @@ int main(int argc, char **argv)
     }
 
     // 10️⃣ Move EE back up by 0.228m (after placing)
-    if (!moveUpZ(move_group, 0.15))
+    if (!moveUpZ(move_group, 0.2))
     {
         executor.cancel();
         spinner.join();
