@@ -10,22 +10,25 @@
 #include <std_msgs/msg/float64_multi_array.hpp>
 #include <mutex>
 
+
 // --------------------- Function: Move to ready pose ---------------------
-bool moveToReadyPose(moveit::planning_interface::MoveGroupInterface &move_group)
+bool moveToNamedPose(moveit::planning_interface::MoveGroupInterface &move_group,
+                     const std::string &target_name)
 {
     move_group.setStartStateToCurrentState();
-    move_group.setNamedTarget("arm_ready");
+    move_group.setNamedTarget(target_name);
 
     moveit::planning_interface::MoveGroupInterface::Plan plan;
     auto success = (move_group.plan(plan) == moveit::core::MoveItErrorCode::SUCCESS);
+
     if (success)
     {
-        RCLCPP_INFO(rclcpp::get_logger("moveToReadyPose"), "Moving to arm_ready pose...");
+        RCLCPP_INFO(rclcpp::get_logger("moveToNamedPose"), "Moving to '%s' pose...", target_name.c_str());
         move_group.execute(plan);
 
         // 🔎 Print current EE pose
         geometry_msgs::msg::Pose ee_pose = move_group.getCurrentPose().pose;
-        RCLCPP_INFO(rclcpp::get_logger("moveToReadyPose"),
+        RCLCPP_INFO(rclcpp::get_logger("moveToNamedPose"),
                     "EE Pose in world (base_link):\n  Position -> x: %.3f, y: %.3f, z: %.3f\n  Orientation -> x: %.3f, y: %.3f, z: %.3f, w: %.3f",
                     ee_pose.position.x,
                     ee_pose.position.y,
@@ -38,7 +41,7 @@ bool moveToReadyPose(moveit::planning_interface::MoveGroupInterface &move_group)
     }
     else
     {
-        RCLCPP_ERROR(rclcpp::get_logger("moveToReadyPose"), "Failed to plan to arm_ready pose");
+        RCLCPP_ERROR(rclcpp::get_logger("moveToNamedPose"), "Failed to plan to '%s' pose", target_name.c_str());
         return false;
     }
 }
@@ -63,9 +66,9 @@ bool moveToWorldXY(moveit::planning_interface::MoveGroupInterface &move_group,
     waypoints.push_back(target_pose);
 
     moveit_msgs::msg::RobotTrajectory trajectory;
-    double fraction = move_group.computeCartesianPath(waypoints, 0.02, 0.0, trajectory);
+    double fraction = move_group.computeCartesianPath(waypoints, 0.005, 0.0, trajectory);
 
-    if (fraction > 0.99)
+    if (fraction > 0.85)
     {
         move_group.execute(trajectory);
         return true;
@@ -98,6 +101,7 @@ bool rotateGripperYaw(moveit::planning_interface::MoveGroupInterface &move_group
     geometry_msgs::msg::Pose target_pose = current_pose;
     geometry_msgs::msg::Quaternion q_msg = tf2::toMsg(q_rot);
     target_pose.orientation = q_msg;
+
 
     RCLCPP_INFO(rclcpp::get_logger("rotateGripperYaw"),
                 "Rotating gripper to yaw=%.3f rad (%.1f deg)", yaw, yaw * 180.0 / M_PI);
@@ -140,9 +144,9 @@ bool moveDownZ(moveit::planning_interface::MoveGroupInterface &move_group,
     waypoints.push_back(target_pose);
 
     moveit_msgs::msg::RobotTrajectory trajectory;
-    double fraction = move_group.computeCartesianPath(waypoints, 0.02, 0.0, trajectory);
+    double fraction = move_group.computeCartesianPath(waypoints, 0.005, 0.0, trajectory);
 
-    if (fraction > 0.7)
+    if (fraction > 0.85)
     {
         move_group.execute(trajectory);
         return true;
@@ -196,9 +200,9 @@ bool moveUpZ(moveit::planning_interface::MoveGroupInterface &move_group,
     waypoints.push_back(target_pose);
 
     moveit_msgs::msg::RobotTrajectory trajectory;
-    double fraction = move_group.computeCartesianPath(waypoints, 0.02, 0.0, trajectory);
+    double fraction = move_group.computeCartesianPath(waypoints, 0.005, 0.0, trajectory);
 
-    if (fraction > 0.7)
+    if (fraction > 0.85)
     {
         move_group.execute(trajectory);
         return true;
@@ -215,9 +219,12 @@ bool moveUpZ(moveit::planning_interface::MoveGroupInterface &move_group,
 bool rotateBase(moveit::planning_interface::MoveGroupInterface &move_group,
                 double delta_angle)
 {
+    // Get current joint values
     std::vector<double> joint_group_positions = move_group.getCurrentJointValues();
+
+    // Joint[0] = base rotation (shoulder_pan_joint)
     double current_angle = joint_group_positions[0];
-    joint_group_positions[0] = current_angle + delta_angle;
+    joint_group_positions[0] = current_angle + delta_angle;  // add delta (e.g., M_PI for 180°)
 
     move_group.setJointValueTarget(joint_group_positions);
 
@@ -227,7 +234,7 @@ bool rotateBase(moveit::planning_interface::MoveGroupInterface &move_group,
     if (success)
     {
         RCLCPP_INFO(rclcpp::get_logger("rotateBase"),
-                    "Rotating base joint by %.3f rad (%.1f deg) with higher speed",
+                    "Rotating base joint by %.3f rad (%.1f deg)",
                     delta_angle, delta_angle * 180.0 / M_PI);
         move_group.execute(plan);
         return true;
@@ -261,6 +268,7 @@ bool openGripper(moveit::planning_interface::MoveGroupInterface &gripper_group)
         return false;
     }
 }
+
 
 // --------------------- Main ---------------------
 int main(int argc, char **argv)
@@ -326,17 +334,39 @@ int main(int argc, char **argv)
 
         if (run_motion)
         {
-            if (!moveToReadyPose(move_group)) { break; }
+            //if (!moveToNamedPose(move_group, "arm_ready_1")) { break; }
+            //rclcpp::sleep_for(std::chrono::seconds(3));
+            long int delay = 1;
+
             if (!moveToWorldXY(move_group, x, y)) { break; }
+            rclcpp::sleep_for(std::chrono::seconds(delay));
+
             if (!rotateGripperYaw(move_group, yaw)) { break; }
+            rclcpp::sleep_for(std::chrono::seconds(delay));
+
             if (!moveDownZ(move_group, 0.228)) { break; }
+            rclcpp::sleep_for(std::chrono::seconds(delay));
+
             if (!closeGripper(gripper_group)) { break; }
+            rclcpp::sleep_for(std::chrono::seconds(delay));
+
             if (!moveUpZ(move_group, 0.228)) { break; }
+            rclcpp::sleep_for(std::chrono::seconds(delay));
+
             if (!rotateBase(move_group, M_PI)) { break; }
+            rclcpp::sleep_for(std::chrono::seconds(delay));
+
             if (!moveDownZ(move_group, 0.15)) { break; }
+            rclcpp::sleep_for(std::chrono::seconds(delay));
+
             if (!openGripper(gripper_group)) { break; }
+            rclcpp::sleep_for(std::chrono::seconds(delay));
+
             if (!moveUpZ(move_group, 0.15)) { break; }
-            if (!moveToReadyPose(move_group)) { break; }
+            rclcpp::sleep_for(std::chrono::seconds(delay));
+
+            if (!moveToNamedPose(move_group, "arm_ready")) { break; }
+            rclcpp::sleep_for(std::chrono::seconds(delay));
 
             RCLCPP_INFO(node->get_logger(), "✅ Completed pick & place cycle.");
         }
