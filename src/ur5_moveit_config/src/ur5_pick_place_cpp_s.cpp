@@ -7,23 +7,28 @@
 #include <vector>
 #include <thread>
 #include <cmath>
+#include <std_msgs/msg/float64_multi_array.hpp>
+#include <mutex>
+
 
 // --------------------- Function: Move to ready pose ---------------------
-bool moveToReadyPose(moveit::planning_interface::MoveGroupInterface &move_group)
+bool moveToNamedPose(moveit::planning_interface::MoveGroupInterface &move_group,
+                     const std::string &target_name)
 {
     move_group.setStartStateToCurrentState();
-    move_group.setNamedTarget("arm_ready");
+    move_group.setNamedTarget(target_name);
 
     moveit::planning_interface::MoveGroupInterface::Plan plan;
     auto success = (move_group.plan(plan) == moveit::core::MoveItErrorCode::SUCCESS);
+
     if (success)
     {
-        RCLCPP_INFO(rclcpp::get_logger("moveToReadyPose"), "Moving to arm_ready pose...");
+        RCLCPP_INFO(rclcpp::get_logger("moveToNamedPose"), "Moving to '%s' pose...", target_name.c_str());
         move_group.execute(plan);
 
         // 🔎 Print current EE pose
         geometry_msgs::msg::Pose ee_pose = move_group.getCurrentPose().pose;
-        RCLCPP_INFO(rclcpp::get_logger("moveToReadyPose"),
+        RCLCPP_INFO(rclcpp::get_logger("moveToNamedPose"),
                     "EE Pose in world (base_link):\n  Position -> x: %.3f, y: %.3f, z: %.3f\n  Orientation -> x: %.3f, y: %.3f, z: %.3f, w: %.3f",
                     ee_pose.position.x,
                     ee_pose.position.y,
@@ -36,10 +41,11 @@ bool moveToReadyPose(moveit::planning_interface::MoveGroupInterface &move_group)
     }
     else
     {
-        RCLCPP_ERROR(rclcpp::get_logger("moveToReadyPose"), "Failed to plan to arm_ready pose");
+        RCLCPP_ERROR(rclcpp::get_logger("moveToNamedPose"), "Failed to plan to '%s' pose", target_name.c_str());
         return false;
     }
 }
+
 
 // --------------------- Function: Move EE to absolute (X,Y) in world ---------------------
 bool moveToWorldXY(moveit::planning_interface::MoveGroupInterface &move_group,
@@ -63,7 +69,7 @@ bool moveToWorldXY(moveit::planning_interface::MoveGroupInterface &move_group,
     moveit_msgs::msg::RobotTrajectory trajectory;
     double fraction = move_group.computeCartesianPath(waypoints, 0.005, 0.0, trajectory);
 
-    if (fraction > 0.99)
+    if (fraction > 0.85)
     {
         move_group.execute(trajectory);
         return true;
@@ -141,7 +147,7 @@ bool moveDownZ(moveit::planning_interface::MoveGroupInterface &move_group,
     moveit_msgs::msg::RobotTrajectory trajectory;
     double fraction = move_group.computeCartesianPath(waypoints, 0.005, 0.0, trajectory);
 
-    if (fraction > 0.99)
+    if (fraction > 0.85)
     {
         move_group.execute(trajectory);
         return true;
@@ -265,26 +271,11 @@ bool openGripper(moveit::planning_interface::MoveGroupInterface &gripper_group)
 }
 
 
-
 // --------------------- Main ---------------------
 int main(int argc, char **argv)
 {
-    if (argc != 4)
-    {
-        std::cerr << "Usage: ur5_xy_yaw <target_x> <target_y> <yaw_rad>\n";
-        return 1;
-    }
-
-    double target_x = std::atof(argv[1]);
-    double target_y = std::atof(argv[2]);
-    double yaw = std::atof(argv[3]);  // yaw in radians
-
     rclcpp::init(argc, argv);
     auto node = rclcpp::Node::make_shared("ur5_xy_yaw_approach");
-
-    rclcpp::executors::SingleThreadedExecutor executor;
-    executor.add_node(node);
-    std::thread spinner([&executor]() { executor.spin(); });
 
     const std::string PLANNING_GROUP = "arm";  
     moveit::planning_interface::MoveGroupInterface move_group(node, PLANNING_GROUP);
@@ -295,108 +286,75 @@ int main(int argc, char **argv)
     RCLCPP_INFO(node->get_logger(), "Planning frame: %s", move_group.getPlanningFrame().c_str());
     RCLCPP_INFO(node->get_logger(), "End effector link: %s", move_group.getEndEffectorLink().c_str());
 
-    // 1️⃣ Move to ready pose
-    if (!moveToReadyPose(move_group))
-    {
-        executor.cancel();
-        spinner.join();
-        rclcpp::shutdown();
-        return 1;
-    }    
+    // ---- Shared target variables ----
+    std::mutex mtx;
+    bool new_target_available = false;
+    double target_x = 0.0, target_y = 0.0, target_yaw = 0.0;
 
-    // 2️⃣ Move EE to absolute (X,Y) in world
-    if (!moveToWorldXY(move_group, target_x, target_y))
+    // ---- Subscriber ----
+    auto sub = node->create_subscription<std_msgs::msg::Float64MultiArray>(
+        "/target_point", 10,
+        [&](const std_msgs::msg::Float64MultiArray::SharedPtr msg)
+        {
+            if (msg->data.size() < 3)
+            {
+                RCLCPP_ERROR(node->get_logger(), "Received target_point with insufficient data.");
+                return;
+            }
+
+            std::lock_guard<std::mutex> lock(mtx);
+            target_x = std::round(msg->data[0] * 10.0) / 10.0;
+            target_y = std::round(msg->data[1] * 10.0) / 10.0;
+            target_yaw = std::round(msg->data[2] * 10.0) / 10.0;
+            new_target_available = true;
+
+            RCLCPP_INFO(node->get_logger(),
+                        "Received target_point -> x=%.1f, y=%.1f, yaw=%.1f",
+                        target_x, target_y, target_yaw);
+        });
+
+    // ---- Executor and spinner ----
+    rclcpp::executors::SingleThreadedExecutor executor;
+    executor.add_node(node);
+    std::thread spinner([&executor]() { executor.spin(); });
+
+    // ---- Main loop to execute MoveIt motions ----
+    while (rclcpp::ok())
     {
-        executor.cancel();
-        spinner.join();
-        rclcpp::shutdown();
-        return 1;
+        bool run_motion = false;
+        double x, y, yaw;
+        {
+            std::lock_guard<std::mutex> lock(mtx);
+            if (new_target_available)
+            {
+                x = target_x; y = target_y; yaw = target_yaw;
+                new_target_available = false;
+                run_motion = true;
+            }
+        }
+
+        if (run_motion)
+        {
+            if (!moveToNamedPose(move_group, "arm_ready_1")) { break; }
+            if (!moveToWorldXY(move_group, x, y)) { break; }
+            if (!rotateGripperYaw(move_group, yaw)) { break; }
+            if (!moveDownZ(move_group, 0.228)) { break; }
+            if (!closeGripper(gripper_group)) { break; }
+            if (!moveUpZ(move_group, 0.228)) { break; }
+            if (!rotateBase(move_group, M_PI)) { break; }
+            if (!moveDownZ(move_group, 0.15)) { break; }
+            if (!openGripper(gripper_group)) { break; }
+            if (!moveUpZ(move_group, 0.15)) { break; }
+            if (!moveToNamedPose(move_group, "arm_ready")) { break; }
+
+            RCLCPP_INFO(node->get_logger(), "✅ Completed pick & place cycle.");
+        }
+        std::this_thread::sleep_for(std::chrono::milliseconds(100));
     }
-
-    // 3️⃣ Rotate EE yaw
-    if (!rotateGripperYaw(move_group, yaw))
-    {
-        executor.cancel();
-        spinner.join();
-        rclcpp::shutdown();
-        return 1;
-    }
-
-    // 4️⃣ Move EE straight down by 0.1m
-    if (!moveDownZ(move_group, 0.228))
-    {
-        executor.cancel();
-        spinner.join();
-        rclcpp::shutdown();
-        return 1;
-    }
-
-    // 5️⃣ Close gripper
-    if (!closeGripper(gripper_group))
-    {
-        executor.cancel();
-        spinner.join();
-        rclcpp::shutdown();
-        return 1;
-    }
-
-    // 6️⃣ Move EE back up by 0.221m
-    if (!moveUpZ(move_group, 0.228))
-    {
-        executor.cancel();
-        spinner.join();
-        rclcpp::shutdown();
-        return 1;
-    }    
-
-    // 7️⃣ Rotate robot base by 180° (pi radians)
-    if (!rotateBase(move_group, M_PI))
-    {
-        executor.cancel();
-        spinner.join();
-        rclcpp::shutdown();
-        return 1;
-    }
-
-    // 8️⃣ Move EE straight down again by 0.228m (for placement)
-    if (!moveDownZ(move_group, 0.2))
-    {
-        executor.cancel();
-        spinner.join();
-        rclcpp::shutdown();
-        return 1;
-    }   
-    
-    // 9️⃣ Open gripper (place object)
-    if (!openGripper(gripper_group))
-    {
-        executor.cancel();
-        spinner.join();
-        rclcpp::shutdown();
-        return 1;
-    }
-
-    // 10️⃣ Move EE back up by 0.228m (after placing)
-    if (!moveUpZ(move_group, 0.2))
-    {
-        executor.cancel();
-        spinner.join();
-        rclcpp::shutdown();
-        return 1;
-    }
-
-    // 11️⃣ Move to ready pose
-    if (!moveToReadyPose(move_group))
-    {
-        executor.cancel();
-        spinner.join();
-        rclcpp::shutdown();
-        return 1;
-    }  
-
 
     executor.cancel();
     spinner.join();
     rclcpp::shutdown();
     return 0;
 }
+

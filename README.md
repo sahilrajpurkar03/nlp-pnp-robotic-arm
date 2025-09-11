@@ -85,31 +85,37 @@ llm_mapper.py          # Ollama / transformers wrapper
 for executing chatbot
 ```bash
 cd ~/Isaac_Project/pickPlaceChatMoveitBot_ws/
-
 conda activate ros2_humble_py310
-
 source /opt/ros/humble/setup.bash
-
 source install/setup.bash
-
 ./pick_place_chatbot_ui/launch.sh 
 ```
 
 
 ## moveit command 
-
-cd Isaac_Project/pickPlaceChatMoveitBot_ws/
-
+```bash
+cd ~/Isaac_Project/pickPlaceChatMoveitBot_ws/
 source /opt/ros/humble/setup.bash
-
 colcon build
-
 source install/setup.bash  
-
 ros2 launch ur5_moveit_config demo.launch.py 
-
+```
 
 ##
+```bash
+source /opt/ros/humble/setup.bash
+source install/setup.bash  
+ros2 run ur5_moveit_config ur5_pick_place_cpp_s 
+```
 
-ros2 run
+```bash
+source /opt/ros/humble/setup.bash
+ros2 topic echo /target_point
+```
+
+
+## Conda envs
+
+LabelImg -> training yolov8 and annotation 
+ros2_humble_py310 -> camera detection and chatbot
 

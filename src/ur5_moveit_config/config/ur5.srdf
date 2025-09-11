@@ -31,13 +31,21 @@
         <joint name="wrist_3_joint" value="0"/>
     </group_state>
     <group_state name="arm_ready" group="arm">
+        <joint name="elbow_joint" value="2.2195"/>
+        <joint name="shoulder_lift_joint" value="-2.0518"/>
+        <joint name="shoulder_pan_joint" value="0"/>
+        <joint name="wrist_1_joint" value="1.4466"/>
+        <joint name="wrist_2_joint" value="1.4752"/>
+        <joint name="wrist_3_joint" value="0"/>
+    </group_state>
+    <group_state name="arm_ready_1" group="arm">
         <joint name="elbow_joint" value="1.4059"/>
         <joint name="shoulder_lift_joint" value="-1.1629"/>
         <joint name="shoulder_pan_joint" value="0"/>
         <joint name="wrist_1_joint" value="1.3712"/>
         <joint name="wrist_2_joint" value="1.4753"/>
         <joint name="wrist_3_joint" value="0"/>
-    </group_state>
+    </group_state>    
     <group_state name="open" group="gripper">
         <joint name="robotiq_85_left_knuckle_joint" value="0"/>
     </group_state>
