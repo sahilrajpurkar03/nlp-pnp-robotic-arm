@@ -1,6 +1,6 @@
-# YOLOv8 OBB Model Training with Pick-and-Place Integration  
+# YOLOv8 OBB Model Training 
 
-This repository provides step-by-step guidance on training a **YOLOv8 Oriented Bounding Box (OBB) model** with a custom dataset and integrating it into a **pick-and-place robotic system**.  
+This repository provides step-by-step guidance on training a **YOLOv8 Oriented Bounding Box (OBB) model** with a custom dataset  
 
 Reference: [Robot Mania YouTube Video](https://www.youtube.com/watch?v=7n6gCqC075g)  
 
