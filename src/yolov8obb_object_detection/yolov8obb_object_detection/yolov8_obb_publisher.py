@@ -34,7 +34,7 @@ class Camera_subscriber(Node):
 
     def camera_callback(self, data):
         img = bridge.imgmsg_to_cv2(data, "bgr8")
-        results = self.model(img, conf=0.90)
+        results = self.model(img, conf=0.80)
 
         self.yolov8_inference.header.frame_id = "inference"
         self.yolov8_inference.header.stamp = self.get_clock().now().to_msg()  # ✅ fixed

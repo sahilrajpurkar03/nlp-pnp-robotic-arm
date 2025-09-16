@@ -1,7 +1,7 @@
 <annotation>
-	<folder>val</folder>
+	<folder>train</folder>
 	<filename>frame_34.png</filename>
-	<path>/home/rajpurkar/Isaac_Project/pickPlaceChatMoveitBot_ws/src/yolov8obb_object_detection/training_data/images/val/frame_34.png</path>
+	<path>/home/rajpurkar/Isaac_Project/pickPlaceChatMoveitBot_ws/src/yolov8obb_object_detection/training_data/images/train/frame_34.png</path>
 	<source>
 		<database>Unknown</database>
 	</source>
@@ -12,44 +12,16 @@
 	</size>
 	<segmented>0</segmented>
 	<object>
-		<name>green_cube</name>
-		<pose>Unspecified</pose>
-		<truncated>0</truncated>
-		<difficult>0</difficult>
-		<robndbox>
-			<cx>359.2846</cx>
-			<cy>498.2317</cy>
-			<w>60.0</w>
-			<h>53.0</h>
-			<angle>0.0</angle>
-		</robndbox>
-		<extra/>
-	</object>
-	<object>
 		<name>red_cube</name>
 		<pose>Unspecified</pose>
 		<truncated>0</truncated>
 		<difficult>0</difficult>
 		<robndbox>
-			<cx>734.9447</cx>
-			<cy>272.0558</cy>
-			<w>50.9444</w>
-			<h>51.6317</h>
-			<angle>6.133578</angle>
-		</robndbox>
-		<extra/>
-	</object>
-	<object>
-		<name>yellow_cube</name>
-		<pose>Unspecified</pose>
-		<truncated>0</truncated>
-		<difficult>0</difficult>
-		<robndbox>
-			<cx>761.9353</cx>
-			<cy>533.3054</cy>
-			<w>56.2377</w>
-			<h>51.532</h>
-			<angle>0.292208</angle>
+			<cx>558.7846</cx>
+			<cy>256.7317</cy>
+			<w>49.0</w>
+			<h>54.0</h>
+			<angle>0.0</angle>
 		</robndbox>
 		<extra/>
 	</object>
@@ -59,53 +31,39 @@
 		<truncated>0</truncated>
 		<difficult>0</difficult>
 		<robndbox>
-			<cx>647.5047</cx>
-			<cy>364.4107</cy>
-			<w>52.8096</w>
-			<h>51.6118</h>
-			<angle>0.682317</angle>
+			<cx>864.7846</cx>
+			<cy>333.2317</cy>
+			<w>65.0</w>
+			<h>53.0</h>
+			<angle>0.0</angle>
 		</robndbox>
 		<extra/>
 	</object>
 	<object>
-		<name>marker</name>
+		<name>yellow_cube</name>
 		<pose>Unspecified</pose>
 		<truncated>0</truncated>
 		<difficult>0</difficult>
 		<robndbox>
-			<cx>500.2846</cx>
-			<cy>274.7317</cy>
-			<w>19.8081</w>
-			<h>115.5147</h>
-			<angle>2.531016</angle>
+			<cx>643.7846</cx>
+			<cy>479.2317</cy>
+			<w>47.0</w>
+			<h>55.0</h>
+			<angle>0.0</angle>
 		</robndbox>
 		<extra/>
 	</object>
 	<object>
-		<name>clamp</name>
+		<name>yellow_cube</name>
 		<pose>Unspecified</pose>
 		<truncated>0</truncated>
 		<difficult>0</difficult>
 		<robndbox>
-			<cx>618.8537</cx>
-			<cy>243.8932</cy>
-			<w>85.8155</w>
-			<h>113.1476</h>
-			<angle>4.546067</angle>
-		</robndbox>
-		<extra/>
-	</object>
-	<object>
-		<name>banana</name>
-		<pose>Unspecified</pose>
-		<truncated>0</truncated>
-		<difficult>0</difficult>
-		<robndbox>
-			<cx>409.9093</cx>
-			<cy>329.8699</cy>
-			<w>85.3692</w>
-			<h>187.1696</h>
-			<angle>3.956449</angle>
+			<cx>527.7846</cx>
+			<cy>510.2317</cy>
+			<w>51.0</w>
+			<h>55.0</h>
+			<angle>0.0</angle>
 		</robndbox>
 		<extra/>
 	</object>
@@ -115,11 +73,25 @@
 		<truncated>0</truncated>
 		<difficult>0</difficult>
 		<robndbox>
-			<cx>840.2846</cx>
-			<cy>226.2317</cy>
-			<w>49.7352</w>
-			<h>96.1219</h>
-			<angle>5.346185</angle>
+			<cx>529.7846</cx>
+			<cy>386.2317</cy>
+			<w>73.0</w>
+			<h>89.0</h>
+			<angle>0.0</angle>
+		</robndbox>
+		<extra/>
+	</object>
+	<object>
+		<name>marker</name>
+		<pose>Unspecified</pose>
+		<truncated>0</truncated>
+		<difficult>0</difficult>
+		<robndbox>
+			<cx>662.5268</cx>
+			<cy>245.8561</cy>
+			<w>19.5255</w>
+			<h>119.1901</h>
+			<angle>0.451922</angle>
 		</robndbox>
 		<extra/>
 	</object>
@@ -129,11 +101,11 @@
 		<truncated>0</truncated>
 		<difficult>0</difficult>
 		<robndbox>
-			<cx>512.0805</cx>
-			<cy>453.1938</cy>
-			<w>58.147</w>
-			<h>149.1968</h>
-			<angle>5.788901</angle>
+			<cx>412.2846</cx>
+			<cy>387.7317</cy>
+			<w>58.0</w>
+			<h>150.0</h>
+			<angle>0.0</angle>
 		</robndbox>
 		<extra/>
 	</object>
@@ -143,11 +115,25 @@
 		<truncated>0</truncated>
 		<difficult>0</difficult>
 		<robndbox>
-			<cx>808.959</cx>
-			<cy>462.8948</cy>
-			<w>84.6495</w>
-			<h>200.4627</h>
-			<angle>5.018399</angle>
+			<cx>779.2678</cx>
+			<cy>475.4653</cy>
+			<w>87.5399</w>
+			<h>196.3366</h>
+			<angle>5.576791</angle>
+		</robndbox>
+		<extra/>
+	</object>
+	<object>
+		<name>banana</name>
+		<pose>Unspecified</pose>
+		<truncated>0</truncated>
+		<difficult>0</difficult>
+		<robndbox>
+			<cx>368.2163</cx>
+			<cy>495.1896</cy>
+			<w>69.9894</w>
+			<h>189.019</h>
+			<angle>5.604732</angle>
 		</robndbox>
 		<extra/>
 	</object>
@@ -157,11 +143,39 @@
 		<truncated>0</truncated>
 		<difficult>0</difficult>
 		<robndbox>
-			<cx>823.3701</cx>
-			<cy>405.0908</cy>
-			<w>29.4113</w>
-			<h>184.1854</h>
-			<angle>5.848953</angle>
+			<cx>429.0242</cx>
+			<cy>253.7915</cy>
+			<w>29.8098</w>
+			<h>191.4249</h>
+			<angle>4.006447</angle>
+		</robndbox>
+		<extra/>
+	</object>
+	<object>
+		<name>clamp</name>
+		<pose>Unspecified</pose>
+		<truncated>0</truncated>
+		<difficult>0</difficult>
+		<robndbox>
+			<cx>768.5733</cx>
+			<cy>261.3415</cy>
+			<w>85.7946</w>
+			<h>112.765</h>
+			<angle>0.853476</angle>
+		</robndbox>
+		<extra/>
+	</object>
+	<object>
+		<name>knife</name>
+		<pose>Unspecified</pose>
+		<truncated>0</truncated>
+		<difficult>0</difficult>
+		<robndbox>
+			<cx>717.4306</cx>
+			<cy>378.4087</cy>
+			<w>63.7211</w>
+			<h>272.4523</h>
+			<angle>4.915854</angle>
 		</robndbox>
 		<extra/>
 	</object>

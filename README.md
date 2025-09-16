@@ -116,6 +116,6 @@ ros2 topic echo /target_point
 
 ## Conda envs
 
-LabelImg2-> training yolov8 and annotation 
+labelimg2-> training yolov8 and annotation 
 ros2_humble_py310 -> Datacollection/camera detection and chatbot
 
