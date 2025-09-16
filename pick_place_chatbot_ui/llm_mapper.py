@@ -4,7 +4,8 @@ import re
 VALID_LABELS = [
     "banana", "marker", "rubiks_cube",
     "green_cube", "red_cube", "yellow_cube",
-    "scissor", "clamp"
+    "scissor", "clamp", "allen_key", "measuring_tape", 
+    "knife", "chisel"
 ]
 
 def llm_chat_or_pick(user_text: str) -> dict:
