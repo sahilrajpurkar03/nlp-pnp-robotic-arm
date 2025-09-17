@@ -46,7 +46,6 @@ bool moveToNamedPose(moveit::planning_interface::MoveGroupInterface &move_group,
     }
 }
 
-
 // --------------------- Function: Move EE to absolute (X,Y) in world ---------------------
 bool moveToWorldXY(moveit::planning_interface::MoveGroupInterface &move_group,
                    double target_x, double target_y)
@@ -69,7 +68,7 @@ bool moveToWorldXY(moveit::planning_interface::MoveGroupInterface &move_group,
     moveit_msgs::msg::RobotTrajectory trajectory;
     double fraction = move_group.computeCartesianPath(waypoints, 0.005, 0.0, trajectory);
 
-    if (fraction > 0.85)
+    if (fraction > 0.99)
     {
         move_group.execute(trajectory);
         return true;
@@ -113,7 +112,7 @@ bool rotateGripperYaw(moveit::planning_interface::MoveGroupInterface &move_group
     moveit_msgs::msg::RobotTrajectory trajectory;
     double fraction = move_group.computeCartesianPath(waypoints, 0.01, 0.0, trajectory);
 
-    if (fraction > 0.85)
+    if (fraction > 0.99)
     {
         move_group.execute(trajectory);
         return true;
@@ -147,7 +146,7 @@ bool moveDownZ(moveit::planning_interface::MoveGroupInterface &move_group,
     moveit_msgs::msg::RobotTrajectory trajectory;
     double fraction = move_group.computeCartesianPath(waypoints, 0.005, 0.0, trajectory);
 
-    if (fraction > 0.85)
+    if (fraction > 0.99)
     {
         move_group.execute(trajectory);
         return true;
@@ -203,7 +202,7 @@ bool moveUpZ(moveit::planning_interface::MoveGroupInterface &move_group,
     moveit_msgs::msg::RobotTrajectory trajectory;
     double fraction = move_group.computeCartesianPath(waypoints, 0.005, 0.0, trajectory);
 
-    if (fraction > 0.85)
+    if (fraction > 0.99)
     {
         move_group.execute(trajectory);
         return true;
@@ -286,10 +285,20 @@ int main(int argc, char **argv)
     RCLCPP_INFO(node->get_logger(), "Planning frame: %s", move_group.getPlanningFrame().c_str());
     RCLCPP_INFO(node->get_logger(), "End effector link: %s", move_group.getEndEffectorLink().c_str());
 
+    // ---- Parameters for tolerance ----
+    node->declare_parameter("pos_tol", 0.001);   // 1 mm default
+    node->declare_parameter("yaw_tol", 0.01);    // 0.01 rad (~0.57°) default
+
+    double pos_tol = node->get_parameter("pos_tol").as_double();
+    double yaw_tol = node->get_parameter("yaw_tol").as_double();
+
     // ---- Shared target variables ----
     std::mutex mtx;
     bool new_target_available = false;
     double target_x = 0.0, target_y = 0.0, target_yaw = 0.0;
+
+    // Store last accepted values
+    double last_x = 0.0, last_y = 0.0, last_yaw = 0.0;
 
     // ---- Subscriber ----
     auto sub = node->create_subscription<std_msgs::msg::Float64MultiArray>(
@@ -302,15 +311,33 @@ int main(int argc, char **argv)
                 return;
             }
 
-            std::lock_guard<std::mutex> lock(mtx);
-            target_x = std::round(msg->data[0] * 10.0) / 10.0;
-            target_y = std::round(msg->data[1] * 10.0) / 10.0;
-            target_yaw = std::round(msg->data[2] * 10.0) / 10.0;
-            new_target_available = true;
+            double new_x = msg->data[0];
+            double new_y = msg->data[1];
+            double new_yaw = msg->data[2];
 
-            RCLCPP_INFO(node->get_logger(),
-                        "Received target_point -> x=%.1f, y=%.1f, yaw=%.1f",
-                        target_x, target_y, target_yaw);
+            if (std::fabs(new_x - last_x) > pos_tol ||
+                std::fabs(new_y - last_y) > pos_tol ||
+                std::fabs(new_yaw - last_yaw) > yaw_tol)
+            {
+                std::lock_guard<std::mutex> lock(mtx);
+                target_x = new_x;
+                target_y = new_y;
+                target_yaw = new_yaw;
+                new_target_available = true;
+
+                last_x = new_x;
+                last_y = new_y;
+                last_yaw = new_yaw;
+
+                RCLCPP_INFO(node->get_logger(),
+                            "Accepted new target_point -> x=%.3f, y=%.3f, yaw=%.3f",
+                            target_x, target_y, target_yaw);
+            }
+            else
+            {
+                RCLCPP_INFO(node->get_logger(),
+                            "Ignored target_point (difference below tolerance).");
+            }
         });
 
     // ---- Executor and spinner ----
@@ -335,17 +362,37 @@ int main(int argc, char **argv)
 
         if (run_motion)
         {
-            if (!moveToNamedPose(move_group, "arm_ready_1")) { break; }
+            long int delay = 1;
+
             if (!moveToWorldXY(move_group, x, y)) { break; }
+            rclcpp::sleep_for(std::chrono::seconds(delay));
+
             if (!rotateGripperYaw(move_group, yaw)) { break; }
-            if (!moveDownZ(move_group, 0.228)) { break; }
+            rclcpp::sleep_for(std::chrono::seconds(delay));
+
+            if (!moveDownZ(move_group, 0.23)) { break; }
+            rclcpp::sleep_for(std::chrono::seconds(delay));
+
             if (!closeGripper(gripper_group)) { break; }
-            if (!moveUpZ(move_group, 0.228)) { break; }
-            if (!rotateBase(move_group, M_PI)) { break; }
+            rclcpp::sleep_for(std::chrono::seconds(delay));
+
+            if (!moveUpZ(move_group, 0.23)) { break; }
+            rclcpp::sleep_for(std::chrono::seconds(delay));
+
+            if (!rotateBase(move_group, -M_PI/2)) { break; }
+            rclcpp::sleep_for(std::chrono::seconds(delay));
+
             if (!moveDownZ(move_group, 0.15)) { break; }
+            rclcpp::sleep_for(std::chrono::seconds(delay));
+
             if (!openGripper(gripper_group)) { break; }
+            rclcpp::sleep_for(std::chrono::seconds(delay));
+
             if (!moveUpZ(move_group, 0.15)) { break; }
+            rclcpp::sleep_for(std::chrono::seconds(delay));
+
             if (!moveToNamedPose(move_group, "arm_ready")) { break; }
+            rclcpp::sleep_for(std::chrono::seconds(delay));
 
             RCLCPP_INFO(node->get_logger(), "✅ Completed pick & place cycle.");
         }
@@ -357,4 +404,3 @@ int main(int argc, char **argv)
     rclcpp::shutdown();
     return 0;
 }
-

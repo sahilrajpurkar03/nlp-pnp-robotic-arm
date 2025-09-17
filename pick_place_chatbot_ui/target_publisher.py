@@ -47,8 +47,8 @@ class TargetPublisher(Node):
         ])
 
         # Manual calibration offset (meters)
-        self.offset_x = -0.26
-        self.offset_y = -0.30
+        self.offset_x = -0.28
+        self.offset_y = -0.31
 
     def cmd_callback(self, msg: String):
         self.target_class = msg.data.strip()
@@ -102,19 +102,20 @@ class TargetPublisher(Node):
             else:
                 denom = points[1][0] - points[2][0]
                 angle = math.pi / 2 if denom == 0 else math.atan2(points[1][1] - points[2][1], denom)
-            
-            # ✅ Add yaw offset (60° = pi/3 radians)
-            angle -= math.radians(60)
 
-            # Normalize angle to [-pi, pi]
-            angle = (angle + math.pi) % (2 * math.pi) - math.pi
+            angle = math.pi/2 + angle  # rotate to align with x-axis            
+            # # ✅ Add yaw offset (60° = pi/3 radians)
+            # angle -= math.radians(60)
+
+            # # Normalize angle to [-pi, pi]
+            # angle = (angle + math.pi) % (2 * math.pi) - math.pi
 
             # Publish once
             msg = Float64MultiArray(
                 data=[
-                    round(x, 2),
-                    round(y, 2),
-                    round(angle, 2)
+                    round(x, 4),
+                    round(y, 4),
+                    round(angle, 4)
                 ]
             )
             self.pub.publish(msg)
