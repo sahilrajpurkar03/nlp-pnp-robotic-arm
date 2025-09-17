@@ -1,4 +1,4 @@
-# nlp-pnp-robot-arm
+# nlp-pnp-robotic-arm
 ![image](docs/PickPlace.png)
 
 ## Commands used:
