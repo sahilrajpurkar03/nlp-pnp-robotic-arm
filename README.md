@@ -1,4 +1,4 @@
-# FrankaChatPicker
+# nlp-pnp-robot-arm
 ![image](docs/PickPlace.png)
 
 ## Commands used:
