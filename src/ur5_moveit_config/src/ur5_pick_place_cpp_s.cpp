@@ -9,8 +9,7 @@
 #include <cmath>
 #include <std_msgs/msg/float64_multi_array.hpp>
 #include <mutex>
-
-
+#include "yolov8_obb_msgs/msg/pick_place_status.hpp"
 // --------------------- Function: Move to ready pose ---------------------
 bool moveToNamedPose(moveit::planning_interface::MoveGroupInterface &move_group,
                      const std::string &target_name)
@@ -269,14 +268,24 @@ bool openGripper(moveit::planning_interface::MoveGroupInterface &gripper_group)
     }
 }
 
-
 // --------------------- Function: Execute pick & place sequence ---------------------
 bool executePickAndPlace(moveit::planning_interface::MoveGroupInterface &move_group,
                          moveit::planning_interface::MoveGroupInterface &gripper_group,
                          double x, double y, double yaw,
                          rclcpp::Node::SharedPtr node,
-                         long int delay, double box)
+                         long int delay, double box,
+                         rclcpp::Publisher<ur5_moveit_config::msg::PickPlaceStatus>::SharedPtr status_pub)
 {
+
+    ur5_moveit_config::msg::PickPlaceStatus status_msg;
+    status_msg.target_x = x;
+    status_msg.target_y = y;
+    status_msg.target_yaw = yaw;
+    status_msg.box = box;
+
+    status_msg.flags.push_back("Starting Pick & Place");
+
+    status_pub->publish(status_msg);
 
     if (!moveToWorldXY(move_group, x, y)) return false;
     rclcpp::sleep_for(std::chrono::seconds(delay));
@@ -322,10 +331,12 @@ bool executePickAndPlace(moveit::planning_interface::MoveGroupInterface &move_gr
     if (!moveToNamedPose(move_group, "arm_ready")) return false;
     rclcpp::sleep_for(std::chrono::seconds(delay));
 
+    status_msg.flags.push_back("Pick & Place Completed");
+    status_pub->publish(status_msg);
+
     RCLCPP_INFO(node->get_logger(), "✅ Completed pick & place cycle.");
     return true;
 }
-
 
 // --------------------- Main ---------------------
 int main(int argc, char **argv)
@@ -356,6 +367,9 @@ int main(int argc, char **argv)
 
     // Store last accepted values
     double last_x = 0.0, last_y = 0.0, last_yaw = 0.0;
+
+    // ---- Publisher for PickPlaceStatus ----
+    auto status_pub = node->create_publisher<ur5_moveit_config::msg::PickPlaceStatus>("/pick_place_status", 10);
 
     // ---- Subscriber ----
     auto sub = node->create_subscription<std_msgs::msg::Float64MultiArray>(
@@ -413,10 +427,10 @@ int main(int argc, char **argv)
         double x, y, yaw, box;
         long int delay = 1;  // seconds
 
-        // // ----------------- FOR DEBUG: Hardcoded target -----------------
+                // // ----------------- FOR DEBUG: Hardcoded target -----------------
         // x = 0.566;        // meters
         // y = 0.053;        // meters
-        // yaw = 3.14;       // radians (45 deg)
+        // yaw = 3.14;       // radians (180 deg)
         // box = 1;          // box number (1 or 2)
         // run_motion = true;        
         // // ----------------------------------------------------------
@@ -437,7 +451,7 @@ int main(int argc, char **argv)
 
         if (run_motion)
         {
-            if (!executePickAndPlace(move_group, gripper_group, x, y, yaw, node, delay, box))
+            if (!executePickAndPlace(move_group, gripper_group, x, y, yaw, node, delay, box, status_pub))
             {
                 RCLCPP_ERROR(node->get_logger(), "Pick & place failed. Exiting...");
                 break;
@@ -454,3 +468,4 @@ int main(int argc, char **argv)
     rclcpp::shutdown();
     return 0;
 }
+

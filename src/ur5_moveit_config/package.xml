@@ -18,6 +18,8 @@
 
   <buildtool_depend>ament_cmake</buildtool_depend>
 
+  <build_depend>rosidl_default_generators</build_depend>
+
   <exec_depend>moveit_ros_move_group</exec_depend>
   <exec_depend>moveit_kinematics</exec_depend>
   <exec_depend>moveit_planners</exec_depend>
@@ -26,6 +28,10 @@
   <exec_depend>joint_state_publisher_gui</exec_depend>
   <exec_depend>tf2_ros</exec_depend>
   <exec_depend>xacro</exec_depend>
+
+  <depend>yolov8_obb_msgs</depend>
+  
+  <exec_depend>rosidl_default_runtime</exec_depend>
   <!-- The next 2 packages are required for the gazebo simulation.
        We don't include them by default to prevent installing gazebo and all its dependencies. -->
   <!-- <exec_depend>joint_trajectory_controller</exec_depend> -->
@@ -45,6 +51,8 @@
   <exec_depend>warehouse_ros_mongo</exec_depend>
   <exec_depend>xacro</exec_depend>
 
+  <!-- Added for ROS2 Humble message-only package compatibility -->
+  <member_of_group>rosidl_interface_packages</member_of_group>
 
   <export>
       <build_type>ament_cmake</build_type>
