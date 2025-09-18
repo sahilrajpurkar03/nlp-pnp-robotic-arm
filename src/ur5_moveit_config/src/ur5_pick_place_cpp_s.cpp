@@ -269,6 +269,107 @@ bool openGripper(moveit::planning_interface::MoveGroupInterface &gripper_group)
     }
 }
 
+// --------------------- Function: Move to a world position with gripper orientation fixed from 'arm_ready' ---------------------
+bool moveToWorldJointSpace(moveit::planning_interface::MoveGroupInterface &move_group,
+                                 double x, double y, double z)
+{
+    // 1. Get gripper-down orientation from "arm_ready"
+    move_group.setNamedTarget("arm_ready");
+    moveit::planning_interface::MoveGroupInterface::Plan plan_ready;
+    move_group.plan(plan_ready);
+    geometry_msgs::msg::Pose ee_pose_down = move_group.getCurrentPose().pose;
+    geometry_msgs::msg::Quaternion gripper_down_quat = ee_pose_down.orientation;
+
+    // 2. Create target pose with gripper down
+    geometry_msgs::msg::Pose target_pose;
+    target_pose.position.x = x;
+    target_pose.position.y = y;
+    target_pose.position.z = z;
+    target_pose.orientation = gripper_down_quat;
+
+    move_group.setStartStateToCurrentState();
+    move_group.setPoseTarget(target_pose);
+
+    // 3. Create an orientation constraint to force gripper pointing down
+    moveit_msgs::msg::OrientationConstraint ocm;
+    ocm.link_name = move_group.getEndEffectorLink();  // EE link
+    ocm.header.frame_id = move_group.getPlanningFrame();
+    ocm.orientation = gripper_down_quat;
+    ocm.absolute_x_axis_tolerance = 0.01;  // small tolerance
+    ocm.absolute_y_axis_tolerance = 0.01;
+    ocm.absolute_z_axis_tolerance = 0.01;
+    ocm.weight = 1.0;
+
+    moveit_msgs::msg::Constraints constraints;
+    constraints.orientation_constraints.push_back(ocm);
+    move_group.setPathConstraints(constraints);
+
+    // 4. Plan in joint space
+    moveit::planning_interface::MoveGroupInterface::Plan plan;
+    bool success = (move_group.plan(plan) == moveit::core::MoveItErrorCode::SUCCESS);
+
+    if (success)
+    {
+        RCLCPP_INFO(rclcpp::get_logger("moveToJointSpaceXYGripperDown"),
+                    "Moving to x=%.3f, y=%.3f, z=%.3f with gripper down",
+                    x, y, z);
+        move_group.execute(plan);
+        move_group.clearPathConstraints();  // remove constraints after motion
+        return true;
+    }
+    else
+    {
+        RCLCPP_ERROR(rclcpp::get_logger("moveToJointSpaceXYGripperDown"),
+                     "Failed to plan joint-space motion with orientation constraint");
+        move_group.clearPathConstraints();
+        return false;
+    }
+}
+
+// --------------------- Function: Execute pick & place sequence ---------------------
+bool executePickAndPlace(moveit::planning_interface::MoveGroupInterface &move_group,
+                         moveit::planning_interface::MoveGroupInterface &gripper_group,
+                         double x, double y, double yaw,
+                         rclcpp::Node::SharedPtr node,
+                         long int delay = 1)
+{
+    if (!moveToWorldXY(move_group, x, y)) return false;
+    rclcpp::sleep_for(std::chrono::seconds(delay));
+
+    if (!rotateGripperYaw(move_group, yaw)) return false;
+    rclcpp::sleep_for(std::chrono::seconds(delay));
+
+    if (!moveDownZ(move_group, 0.23)) return false;
+    rclcpp::sleep_for(std::chrono::seconds(delay));
+
+    if (!closeGripper(gripper_group)) return false;
+    rclcpp::sleep_for(std::chrono::seconds(delay));
+
+    if (!moveUpZ(move_group, 0.23)) return false;
+    rclcpp::sleep_for(std::chrono::seconds(delay));
+
+    // if (!rotateBase(move_group, M_PI)) return false;
+    // rclcpp::sleep_for(std::chrono::seconds(2));
+
+    if (!moveToWorldJointSpace(move_group, -0.23, -0.53, 0.2)) return false;
+    rclcpp::sleep_for(std::chrono::seconds(delay));    
+
+    if (!moveDownZ(move_group, 0.1)) return false;
+    rclcpp::sleep_for(std::chrono::seconds(delay));
+
+    if (!openGripper(gripper_group)) return false;
+    rclcpp::sleep_for(std::chrono::seconds(delay));
+
+    if (!moveUpZ(move_group, 0.1)) return false;
+    rclcpp::sleep_for(std::chrono::seconds(delay));
+
+    if (!moveToNamedPose(move_group, "arm_ready")) return false;
+    rclcpp::sleep_for(std::chrono::seconds(delay));
+
+    RCLCPP_INFO(node->get_logger(), "✅ Completed pick & place cycle.");
+    return true;
+}
+
 
 // --------------------- Main ---------------------
 int main(int argc, char **argv)
@@ -350,51 +451,34 @@ int main(int argc, char **argv)
     {
         bool run_motion = false;
         double x, y, yaw;
-        {
-            std::lock_guard<std::mutex> lock(mtx);
-            if (new_target_available)
-            {
-                x = target_x; y = target_y; yaw = target_yaw;
-                new_target_available = false;
-                run_motion = true;
-            }
-        }
+        // ----------------- DEBUG: Hardcoded target -----------------
+        x = 0.566;        // meters
+        y = 0.053;        // meters
+        yaw = 3.14; // radians (45 deg)
+        run_motion = true;        
+        // ----------------------------------------------------------
+
+        // // Original subscriber logic (keep it commented for debug)
+        // {
+        //     std::lock_guard<std::mutex> lock(mtx);
+        //     if (new_target_available)
+        //     {
+        //         x = target_x; y = target_y; yaw = target_yaw;
+        //         new_target_available = false;
+        //         run_motion = true;
+        //     }
+        // }
 
         if (run_motion)
         {
-            long int delay = 1;
-
-            if (!moveToWorldXY(move_group, x, y)) { break; }
-            rclcpp::sleep_for(std::chrono::seconds(delay));
-
-            if (!rotateGripperYaw(move_group, yaw)) { break; }
-            rclcpp::sleep_for(std::chrono::seconds(delay));
-
-            if (!moveDownZ(move_group, 0.23)) { break; }
-            rclcpp::sleep_for(std::chrono::seconds(delay));
-
-            if (!closeGripper(gripper_group)) { break; }
-            rclcpp::sleep_for(std::chrono::seconds(delay));
-
-            if (!moveUpZ(move_group, 0.23)) { break; }
-            rclcpp::sleep_for(std::chrono::seconds(delay));
-
-            if (!rotateBase(move_group, -M_PI/2)) { break; }
-            rclcpp::sleep_for(std::chrono::seconds(delay));
-
-            if (!moveDownZ(move_group, 0.15)) { break; }
-            rclcpp::sleep_for(std::chrono::seconds(delay));
-
-            if (!openGripper(gripper_group)) { break; }
-            rclcpp::sleep_for(std::chrono::seconds(delay));
-
-            if (!moveUpZ(move_group, 0.15)) { break; }
-            rclcpp::sleep_for(std::chrono::seconds(delay));
-
-            if (!moveToNamedPose(move_group, "arm_ready")) { break; }
-            rclcpp::sleep_for(std::chrono::seconds(delay));
-
-            RCLCPP_INFO(node->get_logger(), "✅ Completed pick & place cycle.");
+            if (!executePickAndPlace(move_group, gripper_group, x, y, yaw, node))
+            {
+                RCLCPP_ERROR(node->get_logger(), "Pick & place failed. Exiting...");
+                break;
+            }
+                
+            // For debug, only run once
+            break;
         }
         std::this_thread::sleep_for(std::chrono::milliseconds(100));
     }
