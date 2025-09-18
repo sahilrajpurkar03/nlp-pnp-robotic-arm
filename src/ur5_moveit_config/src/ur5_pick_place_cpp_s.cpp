@@ -426,10 +426,10 @@ int main(int argc, char **argv)
         double x, y, yaw, box;
         long int delay = 1;  // seconds
 
-                // // ----------------- FOR DEBUG: Hardcoded target -----------------
+        // // ----------------- FOR DEBUG: Hardcoded target -----------------
         // x = 0.566;        // meters
         // y = 0.053;        // meters
-        // yaw = 3.14;       // radians (180 deg)
+        // yaw = 3.14;       // radians (45 deg)
         // box = 1;          // box number (1 or 2)
         // run_motion = true;        
         // // ----------------------------------------------------------
