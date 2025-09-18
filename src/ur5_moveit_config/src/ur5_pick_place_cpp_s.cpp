@@ -9,7 +9,7 @@
 #include <cmath>
 #include <std_msgs/msg/float64_multi_array.hpp>
 #include <mutex>
-#include "yolov8_obb_msgs/msg/pick_place_status.hpp"
+#include "yolov8_msgs/msg/pick_place_status.hpp"
 // --------------------- Function: Move to ready pose ---------------------
 bool moveToNamedPose(moveit::planning_interface::MoveGroupInterface &move_group,
                      const std::string &target_name)
@@ -274,16 +274,15 @@ bool executePickAndPlace(moveit::planning_interface::MoveGroupInterface &move_gr
                          double x, double y, double yaw,
                          rclcpp::Node::SharedPtr node,
                          long int delay, double box,
-                         rclcpp::Publisher<ur5_moveit_config::msg::PickPlaceStatus>::SharedPtr status_pub)
+                         rclcpp::Publisher<yolov8_msgs::msg::PickPlaceStatus>::SharedPtr status_pub)
 {
 
-    ur5_moveit_config::msg::PickPlaceStatus status_msg;
+    yolov8_msgs::msg::PickPlaceStatus status_msg;
     status_msg.target_x = x;
     status_msg.target_y = y;
     status_msg.target_yaw = yaw;
-    status_msg.box = box;
-
-    status_msg.flags.push_back("Starting Pick & Place");
+    status_msg.target_box = static_cast<int32_t>(box);   // use the int32 field you defined
+    status_msg.event_msg = "Starting Pick & Place"; 
 
     status_pub->publish(status_msg);
 
@@ -331,7 +330,7 @@ bool executePickAndPlace(moveit::planning_interface::MoveGroupInterface &move_gr
     if (!moveToNamedPose(move_group, "arm_ready")) return false;
     rclcpp::sleep_for(std::chrono::seconds(delay));
 
-    status_msg.flags.push_back("Pick & Place Completed");
+    status_msg.event_msg = "Pick & Place Completed";  
     status_pub->publish(status_msg);
 
     RCLCPP_INFO(node->get_logger(), "✅ Completed pick & place cycle.");
@@ -369,7 +368,7 @@ int main(int argc, char **argv)
     double last_x = 0.0, last_y = 0.0, last_yaw = 0.0;
 
     // ---- Publisher for PickPlaceStatus ----
-    auto status_pub = node->create_publisher<ur5_moveit_config::msg::PickPlaceStatus>("/pick_place_status", 10);
+    auto status_pub = node->create_publisher<yolov8_msgs::msg::PickPlaceStatus>("/pick_place_status", 10);
 
     // ---- Subscriber ----
     auto sub = node->create_subscription<std_msgs::msg::Float64MultiArray>(
