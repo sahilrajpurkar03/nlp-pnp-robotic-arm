@@ -352,7 +352,7 @@ int main(int argc, char **argv)
     // ---- Shared target variables ----
     std::mutex mtx;
     bool new_target_available = false;
-    double target_x = 0.0, target_y = 0.0, target_yaw = 0.0;
+    double target_x = 0.0, target_y = 0.0, target_yaw = 0.0, target_box = -1.0;
 
     // Store last accepted values
     double last_x = 0.0, last_y = 0.0, last_yaw = 0.0;
@@ -362,24 +362,28 @@ int main(int argc, char **argv)
         "/target_point", 10,
         [&](const std_msgs::msg::Float64MultiArray::SharedPtr msg)
         {
-            if (msg->data.size() < 3)
+            if (msg->data.size() < 4)
             {
-                RCLCPP_ERROR(node->get_logger(), "Received target_point with insufficient data.");
+                RCLCPP_ERROR(node->get_logger(),
+                             "Received target_point with insufficient data. Expected [x, y, yaw, box].");
                 return;
             }
 
             double new_x = msg->data[0];
             double new_y = msg->data[1];
             double new_yaw = msg->data[2];
+            double new_box = msg->data[3];
 
             if (std::fabs(new_x - last_x) > pos_tol ||
                 std::fabs(new_y - last_y) > pos_tol ||
-                std::fabs(new_yaw - last_yaw) > yaw_tol)
+                std::fabs(new_yaw - last_yaw) > yaw_tol ||
+                new_box != target_box)
             {
                 std::lock_guard<std::mutex> lock(mtx);
                 target_x = new_x;
                 target_y = new_y;
                 target_yaw = new_yaw;
+                target_box = new_box;
                 new_target_available = true;
 
                 last_x = new_x;
@@ -387,8 +391,8 @@ int main(int argc, char **argv)
                 last_yaw = new_yaw;
 
                 RCLCPP_INFO(node->get_logger(),
-                            "Accepted new target_point -> x=%.3f, y=%.3f, yaw=%.3f",
-                            target_x, target_y, target_yaw);
+                            "Accepted new target_point -> x=%.3f, y=%.3f, yaw=%.3f, box=%.0f",
+                            target_x, target_y, target_yaw, target_box);
             }
             else
             {
@@ -409,25 +413,27 @@ int main(int argc, char **argv)
         double x, y, yaw, box;
         long int delay = 1;  // seconds
 
-        // ----------------- DEBUG: Hardcoded target -----------------
-        x = 0.566;        // meters
-        y = 0.053;        // meters
-        yaw = 3.14; // radians (45 deg)
-        box = 1;          // box number (1 or 2)
+        // // ----------------- FOR DEBUG: Hardcoded target -----------------
+        // x = 0.566;        // meters
+        // y = 0.053;        // meters
+        // yaw = 3.14;       // radians (45 deg)
+        // box = 1;          // box number (1 or 2)
+        // run_motion = true;        
+        // // ----------------------------------------------------------
 
-        run_motion = true;        
-        // ----------------------------------------------------------
-
-        // // Original subscriber logic (keep it commented for debug)
-        // {
-        //     std::lock_guard<std::mutex> lock(mtx);
-        //     if (new_target_available)
-        //     {
-        //         x = target_x; y = target_y; yaw = target_yaw;
-        //         new_target_available = false;
-        //         run_motion = true;
-        //     }
-        // }
+        // Original subscriber logic (keep it commented for debug)
+        {
+            std::lock_guard<std::mutex> lock(mtx);
+            if (new_target_available)
+            {
+                x = target_x; 
+                y = target_y; 
+                yaw = target_yaw;
+                box = target_box;
+                new_target_available = false;
+                run_motion = true;
+            }
+        }
 
         if (run_motion)
         {
@@ -437,8 +443,8 @@ int main(int argc, char **argv)
                 break;
             }
                 
-            // For debug, only run once
-            break;
+            // // For debug, only run once
+            // break;
         }
         std::this_thread::sleep_for(std::chrono::milliseconds(100));
     }

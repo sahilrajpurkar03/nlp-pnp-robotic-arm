@@ -1,4 +1,3 @@
-# llm_mapper.py
 import re
 import difflib
 import subprocess
@@ -22,8 +21,9 @@ LABEL_SYNONYMS = {
     # add more as needed
 }
 
-# keep track of last suggestion for yes/no confirmation
-_last_suggestion = None
+_last_suggestion = None      # for typo confirmation
+_pending_pick = None         # stores label until box chosen
+
 
 def find_best_label(user_text: str) -> str | None:
     words = user_text.lower().split()
@@ -31,8 +31,7 @@ def find_best_label(user_text: str) -> str | None:
     best_ratio = 0.0
 
     for label in VALID_LABELS:
-        candidates = [label] + label.split("_")  # original parts
-        # include synonyms if defined
+        candidates = [label] + label.split("_")
         if label in LABEL_SYNONYMS:
             candidates += LABEL_SYNONYMS[label]
 
@@ -46,73 +45,73 @@ def find_best_label(user_text: str) -> str | None:
     return best_match if best_ratio > 0.6 else None
 
 
-
 def llm_chat_or_pick(user_text: str) -> dict:
-    """
-    Determines if user wants to pick an object (exact or fuzzy match),
-    asks for confirmation if needed, or falls back to casual chat.
-    """
-    global _last_suggestion
+    global _last_suggestion, _pending_pick
     text = user_text.lower().strip()
 
-    # --- Handle confirmation responses ---
+    # --- Handle confirmation (typos) ---
     if _last_suggestion:
         if text in ["yes", "y", "yeah", "ok", "sure"]:
             label = _last_suggestion
             _last_suggestion = None
+            _pending_pick = label
             return {
-                "type": "pick",
+                "type": "ask_box",
                 "label": label,
-                "reply": f"Okay, picking the {label.replace('_',' ')} 🟢"
+                "reply": f"Okay, {label.replace('_',' ')} selected ✅. In which box do you want to drop it (1 or 2)?"
             }
         elif text in ["no", "n", "nope"]:
             _last_suggestion = None
+            return {"type": "chat", "reply": "Alright, cancelled ❌. What should I grab instead?"}
+
+    # --- Handle box choice ---
+    if _pending_pick:
+        if "1" in text:
+            label = _pending_pick
+            _pending_pick = None
             return {
-                "type": "chat",
-                "reply": "Alright, cancelled ❌. What should I grab instead?"
+                "type": "pick",
+                "label": label,
+                "box": "1",
+                "reply": f"Picking the {label.replace('_',' ')} 🟢 and dropping it in box 1 📦"
             }
+        elif "2" in text:
+            label = _pending_pick
+            _pending_pick = None
+            return {
+                "type": "pick",
+                "label": label,
+                "box": "2",
+                "reply": f"Picking the {label.replace('_',' ')} 🟢 and dropping it in box 2 📦"
+            }
+        else:
+            return {"type": "chat", "reply": "Please specify box 1 or box 2 📦"}
 
     # --- Detect pick intent ---
     if any(re.search(rf"\b{syn}\b", text) for syn in PICK_SYNONYMS):
-
-        # ✅ Exact match (with or without underscore/space)
         for label in VALID_LABELS:
             pattern = label.replace("_", "[ _]")
             if re.search(rf"\b{pattern}\b", text):
+                _pending_pick = label
                 return {
-                    "type": "pick",
+                    "type": "ask_box",
                     "label": label,
-                    "reply": f"Picking the {label.replace('_',' ')} 🟢"
+                    "reply": f"Okay, {label.replace('_',' ')} selected ✅. In which box do you want to drop it (1 or 2)?"
                 }
 
-        # ✅ Fuzzy/partial match (typos and partial words)
         best_match = find_best_label(text)
         if best_match:
             _last_suggestion = best_match
-            return {
-                "type": "chat",
-                "reply": f"Did you mean **{best_match.replace('_',' ')}**? (yes/no)"
-            }
+            return {"type": "chat", "reply": f"Did you mean **{best_match.replace('_',' ')}**? (yes/no)"}
 
-        # if no match at all
-        return {
-            "type": "chat",
-            "reply": "I didn’t recognize that item 🤔. Can you try again?"
-        }
+        return {"type": "chat", "reply": "I didn’t recognize that item 🤔. Can you try again?"}
 
-    # --- Fallback: LLM casual chat ---
+    # --- Fallback casual chat ---
     prompt = f"""
 You are a helpful robot assistant. Only reply to casual chat.
 User message: "{user_text}"
 Respond only with text (no JSON needed).
 """
-    result = subprocess.run(
-        ["ollama", "run", "phi3", prompt],
-        capture_output=True, text=True
-    )
+    result = subprocess.run(["ollama", "run", "phi3", prompt], capture_output=True, text=True)
     reply = result.stdout.strip() or "Hello! How can I help you?"
-
-    return {
-        "type": "chat",
-        "reply": reply
-    }
+    return {"type": "chat", "reply": reply}

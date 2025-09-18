@@ -17,11 +17,14 @@ class CommandPublisher(Node):
         super().__init__('command_publisher')
         self.pub = self.create_publisher(String, '/target_class_cmd', 10)
 
-    def publish_label(self, label: str):
+    def publish_label(self, label: str, box: str | None = None):
         msg = String()
-        msg.data = label
+        if box:
+            msg.data = f"{label},{box}"
+        else:
+            msg.data = label
         self.pub.publish(msg)
-        self.get_logger().info(f"Published /target_class_cmd: {label}")
+        self.get_logger().info(f"Published /target_class_cmd: {msg.data}")
 
 # ---------- FastAPI ----------
 app = FastAPI(title="Robot Arm Command Chatbot Bridge")
@@ -45,7 +48,7 @@ def labels():
 def chat(req: ChatRequest):
     data = llm_chat_or_pick(req.text)
     if data.get("type") == "pick" and ros_node is not None:
-        ros_node.publish_label(data["label"])
+        ros_node.publish_label(data["label"], data.get("box"))
     return {"ok": True, "reply": data["reply"]}
 
 # ---------- FastAPI Thread ----------
