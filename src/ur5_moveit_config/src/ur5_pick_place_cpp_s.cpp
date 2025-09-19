@@ -9,7 +9,6 @@
 #include <cmath>
 #include <std_msgs/msg/float64_multi_array.hpp>
 #include <mutex>
-#include "yolov8_msgs/msg/pick_place_status.hpp"
 // --------------------- Function: Move to ready pose ---------------------
 bool moveToNamedPose(moveit::planning_interface::MoveGroupInterface &move_group,
                      const std::string &target_name)
@@ -273,18 +272,11 @@ bool executePickAndPlace(moveit::planning_interface::MoveGroupInterface &move_gr
                          moveit::planning_interface::MoveGroupInterface &gripper_group,
                          double x, double y, double yaw,
                          rclcpp::Node::SharedPtr node,
-                         long int delay, double box,
-                         rclcpp::Publisher<yolov8_msgs::msg::PickPlaceStatus>::SharedPtr status_pub)
+                         long int delay, double box)
 {
 
-    yolov8_msgs::msg::PickPlaceStatus status_msg;
-    status_msg.target_x = x;
-    status_msg.target_y = y;
-    status_msg.target_yaw = yaw;
-    status_msg.target_box = static_cast<int32_t>(box);   // use the int32 field you defined
-    status_msg.event_msg = "Starting Pick & Place"; 
 
-    status_pub->publish(status_msg);
+
 
     if (!moveToWorldXY(move_group, x, y)) return false;
     rclcpp::sleep_for(std::chrono::seconds(delay));
@@ -292,13 +284,13 @@ bool executePickAndPlace(moveit::planning_interface::MoveGroupInterface &move_gr
     if (!rotateGripperYaw(move_group, yaw)) return false;
     rclcpp::sleep_for(std::chrono::seconds(delay));
 
-    if (!moveDownZ(move_group, 0.23)) return false;
+    if (!moveDownZ(move_group, 0.233)) return false;
     rclcpp::sleep_for(std::chrono::seconds(delay));
 
     if (!closeGripper(gripper_group)) return false;
     rclcpp::sleep_for(std::chrono::seconds(delay));
 
-    if (!moveUpZ(move_group, 0.23)) return false;
+    if (!moveUpZ(move_group, 0.233)) return false;
     rclcpp::sleep_for(std::chrono::seconds(delay));
 
     // if (!rotateBase(move_group, M_PI)) return false;
@@ -318,20 +310,17 @@ bool executePickAndPlace(moveit::planning_interface::MoveGroupInterface &move_gr
     if (!moveToWorldXY(move_group, box_x, box_y)) return false;
     rclcpp::sleep_for(std::chrono::seconds(delay));   
 
-    if (!moveDownZ(move_group, 0.23)) return false;
+    if (!moveDownZ(move_group, 0.24)) return false;
     rclcpp::sleep_for(std::chrono::seconds(delay));
 
     if (!openGripper(gripper_group)) return false;
     rclcpp::sleep_for(std::chrono::seconds(delay));
 
-    if (!moveUpZ(move_group, 0.23)) return false;
+    if (!moveUpZ(move_group, 0.24)) return false;
     rclcpp::sleep_for(std::chrono::seconds(delay));
 
     if (!moveToNamedPose(move_group, "arm_ready")) return false;
     rclcpp::sleep_for(std::chrono::seconds(delay));
-
-    status_msg.event_msg = "Pick & Place Completed";  
-    status_pub->publish(status_msg);
 
     RCLCPP_INFO(node->get_logger(), "✅ Completed pick & place cycle.");
     return true;
@@ -366,9 +355,6 @@ int main(int argc, char **argv)
 
     // Store last accepted values
     double last_x = 0.0, last_y = 0.0, last_yaw = 0.0;
-
-    // ---- Publisher for PickPlaceStatus ----
-    auto status_pub = node->create_publisher<yolov8_msgs::msg::PickPlaceStatus>("/pick_place_status", 10);
 
     // ---- Subscriber ----
     auto sub = node->create_subscription<std_msgs::msg::Float64MultiArray>(
@@ -450,7 +436,7 @@ int main(int argc, char **argv)
 
         if (run_motion)
         {
-            if (!executePickAndPlace(move_group, gripper_group, x, y, yaw, node, delay, box, status_pub))
+            if (!executePickAndPlace(move_group, gripper_group, x, y, yaw, node, delay, box))
             {
                 RCLCPP_ERROR(node->get_logger(), "Pick & place failed. Exiting...");
                 break;

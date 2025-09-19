@@ -29,7 +29,7 @@
   <exec_depend>tf2_ros</exec_depend>
   <exec_depend>xacro</exec_depend>
 
-  <depend>yolov8_msgs</depend>
+  
   
   <exec_depend>rosidl_default_runtime</exec_depend>
   <!-- The next 2 packages are required for the gazebo simulation.

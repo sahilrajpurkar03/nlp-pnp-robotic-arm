@@ -8,8 +8,15 @@
 #include <thread>
 #include <cmath>
 #include <std_msgs/msg/float64_multi_array.hpp>
+#include <std_msgs/msg/string.hpp>  // <-- Added to fix compilation
 #include <mutex>
 
+
+// Robot states
+constexpr int ROBOT_IDLE    = 0;
+constexpr int ROBOT_WAITING = 1;
+constexpr int ROBOT_ACTIVE  = 2;
+constexpr int ROBOT_ERROR   = 3;
 
 // --------------------- Function: Move to ready pose ---------------------
 bool moveToNamedPose(moveit::planning_interface::MoveGroupInterface &move_group,
@@ -68,7 +75,7 @@ bool moveToWorldXY(moveit::planning_interface::MoveGroupInterface &move_group,
     moveit_msgs::msg::RobotTrajectory trajectory;
     double fraction = move_group.computeCartesianPath(waypoints, 0.005, 0.0, trajectory);
 
-    if (fraction > 0.85)
+    if (fraction > 0.99)
     {
         move_group.execute(trajectory);
         return true;
@@ -112,7 +119,7 @@ bool rotateGripperYaw(moveit::planning_interface::MoveGroupInterface &move_group
     moveit_msgs::msg::RobotTrajectory trajectory;
     double fraction = move_group.computeCartesianPath(waypoints, 0.01, 0.0, trajectory);
 
-    if (fraction > 0.85)
+    if (fraction > 0.99)
     {
         move_group.execute(trajectory);
         return true;
@@ -146,7 +153,7 @@ bool moveDownZ(moveit::planning_interface::MoveGroupInterface &move_group,
     moveit_msgs::msg::RobotTrajectory trajectory;
     double fraction = move_group.computeCartesianPath(waypoints, 0.005, 0.0, trajectory);
 
-    if (fraction > 0.85)
+    if (fraction > 0.99)
     {
         move_group.execute(trajectory);
         return true;
@@ -202,7 +209,7 @@ bool moveUpZ(moveit::planning_interface::MoveGroupInterface &move_group,
     moveit_msgs::msg::RobotTrajectory trajectory;
     double fraction = move_group.computeCartesianPath(waypoints, 0.005, 0.0, trajectory);
 
-    if (fraction > 0.85)
+    if (fraction > 0.99)
     {
         move_group.execute(trajectory);
         return true;
@@ -269,6 +276,77 @@ bool openGripper(moveit::planning_interface::MoveGroupInterface &gripper_group)
     }
 }
 
+// --------------------- Function: Publish status ---------------------
+void publishStatus(rclcpp::Publisher<std_msgs::msg::String>::SharedPtr pub, const std::string &msg)
+{
+    std_msgs::msg::String status_msg;  // <-- fully qualified
+    status_msg.data = msg;
+    pub->publish(status_msg);
+}
+
+// --------------------- Function: Execute pick & place sequence ---------------------
+bool executePickAndPlace(moveit::planning_interface::MoveGroupInterface &move_group,
+                         moveit::planning_interface::MoveGroupInterface &gripper_group,
+                         double x, double y, double yaw,
+                         rclcpp::Node::SharedPtr node,
+                         long int delay, double box,
+                         rclcpp::Publisher<std_msgs::msg::String>::SharedPtr status_pub,
+                         std::string &current_status)  // <-- added reference
+{
+    current_status = "ACTIVE";  // update current status
+    publishStatus(status_pub, current_status);
+
+
+    if (!openGripper(gripper_group)) { current_status = "ERROR"; publishStatus(status_pub, current_status); return false; }
+    rclcpp::sleep_for(std::chrono::seconds(delay));
+
+    if (!moveToWorldXY(move_group, x, y)) { current_status = "ERROR"; publishStatus(status_pub, current_status); return false; }
+    rclcpp::sleep_for(std::chrono::seconds(delay));
+
+    if (!rotateGripperYaw(move_group, yaw)) { current_status = "ERROR"; publishStatus(status_pub, current_status); return false; }
+    rclcpp::sleep_for(std::chrono::seconds(delay));
+
+    if (!moveDownZ(move_group, 0.233)) { current_status = "ERROR"; publishStatus(status_pub, current_status); return false; }
+    rclcpp::sleep_for(std::chrono::seconds(delay));
+
+    if (!closeGripper(gripper_group)) { current_status = "ERROR"; publishStatus(status_pub, current_status); return false; }
+    rclcpp::sleep_for(std::chrono::seconds(delay));
+
+    if (!moveUpZ(move_group, 0.233)) { current_status = "ERROR"; publishStatus(status_pub, current_status); return false; }
+    rclcpp::sleep_for(std::chrono::seconds(delay));
+
+    double box_x, box_y;
+
+    if (box == 1){
+        box_x = 0.4;
+        box_y = -0.53;
+    }
+    else if (box == 2) {
+        box_x = 0.4;
+        box_y = 0.53;
+    }
+
+    if (!moveToWorldXY(move_group, box_x, box_y)) { current_status = "ERROR"; publishStatus(status_pub, current_status); return false; }
+    rclcpp::sleep_for(std::chrono::seconds(delay));   
+
+    if (!moveDownZ(move_group, 0.24)) { current_status = "ERROR"; publishStatus(status_pub, current_status); return false; }
+    rclcpp::sleep_for(std::chrono::seconds(delay));
+
+    if (!openGripper(gripper_group)) { current_status = "ERROR"; publishStatus(status_pub, current_status); return false; }
+    rclcpp::sleep_for(std::chrono::seconds(delay));
+
+    if (!moveUpZ(move_group, 0.24)) { current_status = "ERROR"; publishStatus(status_pub, current_status); return false; }
+    rclcpp::sleep_for(std::chrono::seconds(delay));
+
+    if (!moveToNamedPose(move_group, "arm_ready")) { current_status = "ERROR"; publishStatus(status_pub, current_status); return false; }
+    rclcpp::sleep_for(std::chrono::seconds(delay));
+
+    current_status = "IDLE";  // back to idle
+    publishStatus(status_pub, current_status);
+
+    RCLCPP_INFO(node->get_logger(), "✅ Completed pick & place cycle.");
+    return true;
+}
 
 // --------------------- Main ---------------------
 int main(int argc, char **argv)
@@ -285,31 +363,78 @@ int main(int argc, char **argv)
     RCLCPP_INFO(node->get_logger(), "Planning frame: %s", move_group.getPlanningFrame().c_str());
     RCLCPP_INFO(node->get_logger(), "End effector link: %s", move_group.getEndEffectorLink().c_str());
 
+    // ---- Parameters for tolerance ----
+    node->declare_parameter("pos_tol", 0.001);   // 1 mm default
+    node->declare_parameter("yaw_tol", 0.01);    // 0.01 rad (~0.57°) default
+
+    double pos_tol = node->get_parameter("pos_tol").as_double();
+    double yaw_tol = node->get_parameter("yaw_tol").as_double();
+
     // ---- Shared target variables ----
     std::mutex mtx;
     bool new_target_available = false;
-    double target_x = 0.0, target_y = 0.0, target_yaw = 0.0;
+    double target_x = 0.0, target_y = 0.0, target_yaw = 0.0, target_box = -1.0;
+
+    // Store last accepted values
+    double last_x = 0.0, last_y = 0.0, last_yaw = 0.0;
+
+    // ---- Publisher ----
+    auto status_pub = node->create_publisher<std_msgs::msg::String>(
+        "/pick_place_status", 10);
+
+    // ---- Current robot status ----
+    std::string current_status = "IDLE";  // default status
+
+    // ---- Timer to continuously publish current_status ----
+    auto status_timer = node->create_wall_timer(
+        std::chrono::milliseconds(200),  // publish every 200 ms
+        [&status_pub, &current_status]() {
+            publishStatus(status_pub, current_status);
+        }
+    );
 
     // ---- Subscriber ----
     auto sub = node->create_subscription<std_msgs::msg::Float64MultiArray>(
         "/target_point", 10,
         [&](const std_msgs::msg::Float64MultiArray::SharedPtr msg)
         {
-            if (msg->data.size() < 3)
+            if (msg->data.size() < 4)
             {
-                RCLCPP_ERROR(node->get_logger(), "Received target_point with insufficient data.");
+                RCLCPP_ERROR(node->get_logger(),
+                             "Received target_point with insufficient data. Expected [x, y, yaw, box].");
                 return;
             }
 
-            std::lock_guard<std::mutex> lock(mtx);
-            target_x = std::round(msg->data[0] * 10.0) / 10.0;
-            target_y = std::round(msg->data[1] * 10.0) / 10.0;
-            target_yaw = std::round(msg->data[2] * 10.0) / 10.0;
-            new_target_available = true;
+            double new_x = msg->data[0];
+            double new_y = msg->data[1];
+            double new_yaw = msg->data[2];
+            double new_box = msg->data[3];
 
-            RCLCPP_INFO(node->get_logger(),
-                        "Received target_point -> x=%.1f, y=%.1f, yaw=%.1f",
-                        target_x, target_y, target_yaw);
+            if (std::fabs(new_x - last_x) > pos_tol ||
+                std::fabs(new_y - last_y) > pos_tol ||
+                std::fabs(new_yaw - last_yaw) > yaw_tol ||
+                new_box != target_box)
+            {
+                std::lock_guard<std::mutex> lock(mtx);
+                target_x = new_x;
+                target_y = new_y;
+                target_yaw = new_yaw;
+                target_box = new_box;
+                new_target_available = true;
+
+                last_x = new_x;
+                last_y = new_y;
+                last_yaw = new_yaw;
+
+                RCLCPP_INFO(node->get_logger(),
+                            "Accepted new target_point -> x=%.3f, y=%.3f, yaw=%.3f, box=%.0f",
+                            target_x, target_y, target_yaw, target_box);
+            }
+            else
+            {
+                RCLCPP_INFO(node->get_logger(),
+                            "Ignored target_point (difference below tolerance).");
+            }
         });
 
     // ---- Executor and spinner ----
@@ -321,12 +446,18 @@ int main(int argc, char **argv)
     while (rclcpp::ok())
     {
         bool run_motion = false;
-        double x, y, yaw;
+        double x, y, yaw, box;
+        long int delay = 1;  // seconds
+
+        // Original subscriber logic
         {
             std::lock_guard<std::mutex> lock(mtx);
             if (new_target_available)
             {
-                x = target_x; y = target_y; yaw = target_yaw;
+                x = target_x; 
+                y = target_y; 
+                yaw = target_yaw;
+                box = target_box;
                 new_target_available = false;
                 run_motion = true;
             }
@@ -334,41 +465,13 @@ int main(int argc, char **argv)
 
         if (run_motion)
         {
-            //if (!moveToNamedPose(move_group, "arm_ready_1")) { break; }
-            //rclcpp::sleep_for(std::chrono::seconds(3));
-            long int delay = 1;
-
-            if (!moveToWorldXY(move_group, x, y)) { break; }
-            rclcpp::sleep_for(std::chrono::seconds(delay));
-
-            if (!rotateGripperYaw(move_group, yaw)) { break; }
-            rclcpp::sleep_for(std::chrono::seconds(delay));
-
-            if (!moveDownZ(move_group, 0.228)) { break; }
-            rclcpp::sleep_for(std::chrono::seconds(delay));
-
-            if (!closeGripper(gripper_group)) { break; }
-            rclcpp::sleep_for(std::chrono::seconds(delay));
-
-            if (!moveUpZ(move_group, 0.228)) { break; }
-            rclcpp::sleep_for(std::chrono::seconds(delay));
-
-            if (!rotateBase(move_group, M_PI)) { break; }
-            rclcpp::sleep_for(std::chrono::seconds(delay));
-
-            if (!moveDownZ(move_group, 0.15)) { break; }
-            rclcpp::sleep_for(std::chrono::seconds(delay));
-
-            if (!openGripper(gripper_group)) { break; }
-            rclcpp::sleep_for(std::chrono::seconds(delay));
-
-            if (!moveUpZ(move_group, 0.15)) { break; }
-            rclcpp::sleep_for(std::chrono::seconds(delay));
-
-            if (!moveToNamedPose(move_group, "arm_ready")) { break; }
-            rclcpp::sleep_for(std::chrono::seconds(delay));
-
-            RCLCPP_INFO(node->get_logger(), "✅ Completed pick & place cycle.");
+            if (!executePickAndPlace(move_group, gripper_group, x, y, yaw, node, delay, box, status_pub, current_status))
+            {
+                RCLCPP_ERROR(node->get_logger(), "Pick & place failed. Setting status to ERROR and exiting...");
+                current_status = "ERROR";
+                publishStatus(status_pub, current_status);
+                break;
+            }
         }
         std::this_thread::sleep_for(std::chrono::milliseconds(100));
     }

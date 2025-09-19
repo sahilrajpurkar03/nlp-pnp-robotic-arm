@@ -1,9 +1,3 @@
-int32 state
+int32 robot_state
 bool success
 string event_msg
-float64 target_x
-float64 target_y
-float64 target_yaw
-int32   target_box
-geometry_msgs/PoseStamped ee_pose
-int32 gripper_state
