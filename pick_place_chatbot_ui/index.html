@@ -44,6 +44,7 @@
       border-radius: 20px;
       max-width: 75%;
       word-wrap: break-word;
+      position: relative;
     }
 
     .user {
@@ -56,6 +57,26 @@
       align-self: flex-start;
       background-color: #e5e5ea;
       color: #000;
+    }
+
+    .loading {
+      display: flex;
+      align-items: center;
+      gap: 8px;
+    }
+
+    .spinner {
+      border: 3px solid #ccc;
+      border-top: 3px solid #0084ff;
+      border-radius: 50%;
+      width: 16px;
+      height: 16px;
+      animation: spin 1s linear infinite;
+    }
+
+    @keyframes spin {
+      0% { transform: rotate(0deg); }
+      100% { transform: rotate(360deg); }
     }
 
     .input-container {
@@ -108,22 +129,56 @@
 
   <script>
     const messagesDiv = document.getElementById("messages");
+    let loadingMessage = null; // track spinner message
+
+    function addMessage(text, sender) {
+      const msg = document.createElement("div");
+      msg.classList.add("message", sender);
+      msg.textContent = text;
+      messagesDiv.appendChild(msg);
+      messagesDiv.scrollTop = messagesDiv.scrollHeight;
+      return msg;
+    }
+
+    function addLoadingMessage(text="Working...") {
+      const msg = document.createElement("div");
+      msg.classList.add("message", "bot", "loading");
+
+      const spinner = document.createElement("div");
+      spinner.classList.add("spinner");
+
+      const label = document.createElement("span");
+      label.textContent = text;
+
+      msg.appendChild(spinner);
+      msg.appendChild(label);
+
+      messagesDiv.appendChild(msg);
+      messagesDiv.scrollTop = messagesDiv.scrollHeight;
+
+      loadingMessage = msg;
+    }
+
+    function removeLoadingMessage(finalText=null) {
+      if (loadingMessage) {
+        if (finalText) {
+          loadingMessage.classList.remove("loading");
+          loadingMessage.innerHTML = finalText;
+        } else {
+          messagesDiv.removeChild(loadingMessage);
+        }
+        loadingMessage = null;
+      }
+    }
 
     async function sendMessage() {
       const input = document.getElementById("userInput");
       const text = input.value.trim();
       if (!text) return;
 
-      // Show user's message
-      const userMsg = document.createElement("div");
-      userMsg.classList.add("message", "user");
-      userMsg.textContent = text;
-      messagesDiv.appendChild(userMsg);
-
+      addMessage(text, "user");
       input.value = "";
-      messagesDiv.scrollTop = messagesDiv.scrollHeight;
 
-      // Call FastAPI /chat
       try {
         const res = await fetch("/chat", {
           method: "POST",
@@ -132,28 +187,46 @@
         });
         const data = await res.json();
 
-        const botMsg = document.createElement("div");
-        botMsg.classList.add("message", "bot");
-
-        // Display reply from LLM (chat or pick)
-        botMsg.textContent = data.reply;
-
-        messagesDiv.appendChild(botMsg);
-        messagesDiv.scrollTop = messagesDiv.scrollHeight;
+        if (data.reply.includes("⏳")) {
+          // show spinner instead of static ⏳
+          addLoadingMessage(data.reply.replace("⏳", "").trim());
+        } else {
+          addMessage(data.reply, "bot");
+        }
       } catch (err) {
         console.error(err);
-        const botMsg = document.createElement("div");
-        botMsg.classList.add("message", "bot");
-        botMsg.textContent = "Error communicating with server.";
-        messagesDiv.appendChild(botMsg);
-        messagesDiv.scrollTop = messagesDiv.scrollHeight;
+        addMessage("Error communicating with server.", "bot");
       }
     }
 
-    // Send message on Enter key
+    // Enter key sends message
     document.getElementById("userInput").addEventListener("keydown", function(e) {
       if (e.key === "Enter") sendMessage();
     });
+
+    // --- WebSocket connection for live updates ---
+    let wsProto = (window.location.protocol === "https:") ? "wss://" : "ws://";
+    let ws = new WebSocket(wsProto + window.location.host + "/ws");
+
+    ws.onmessage = function(event) {
+      try {
+        let data = JSON.parse(event.data);
+        if (data.reply) {
+          if (loadingMessage) {
+            // replace spinner with success text
+            removeLoadingMessage(data.reply);
+          } else {
+            addMessage(data.reply, "bot");
+          }
+        }
+      } catch (e) {
+        console.error("WebSocket message error:", e);
+      }
+    };
+
+    ws.onclose = function() {
+      console.warn("WebSocket connection closed.");
+    };
   </script>
 </body>
 </html>

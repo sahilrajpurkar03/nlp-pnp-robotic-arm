@@ -45,7 +45,11 @@ def find_best_label(user_text: str) -> str | None:
     return best_match if best_ratio > 0.6 else None
 
 
-def llm_chat_or_pick(user_text: str) -> dict:
+def llm_chat_or_pick(user_text: str, visible_objects: set[str] | None = None) -> dict:
+    """
+    Main LLM + pick handling function.
+    visible_objects: current set of detected objects from YOLO
+    """
     global _last_suggestion, _pending_pick
     text = user_text.lower().strip()
 
@@ -54,12 +58,15 @@ def llm_chat_or_pick(user_text: str) -> dict:
         if text in ["yes", "y", "yeah", "ok", "sure"]:
             label = _last_suggestion
             _last_suggestion = None
+
+            # Only proceed if object is visible
+            if visible_objects and label not in visible_objects:
+                return {"type": "chat", "reply": f"I cannot see {label.replace('_',' ')} in the picking tray 😕"}
+
             _pending_pick = label
-            return {
-                "type": "ask_box",
-                "label": label,
-                "reply": f"Okay, {label.replace('_',' ')} selected ✅. In which box do you want to drop it (1 or 2)?"
-            }
+            return {"type": "ask_box", "label": label,
+                    "reply": f"Okay, {label.replace('_',' ')} selected ✅. In which box do you want to drop it (1 or 2)?"}
+
         elif text in ["no", "n", "nope"]:
             _last_suggestion = None
             return {"type": "chat", "reply": "Alright, cancelled ❌. What should I grab instead?"}
@@ -69,21 +76,13 @@ def llm_chat_or_pick(user_text: str) -> dict:
         if "1" in text:
             label = _pending_pick
             _pending_pick = None
-            return {
-                "type": "pick",
-                "label": label,
-                "box": "1",
-                "reply": f"Picking the {label.replace('_',' ')} 🟢 and dropping it in box 1 📦"
-            }
+            return {"type": "pick", "label": label, "box": "1",
+                    "reply": f"Picking the {label.replace('_',' ')} ⏳ in progress..."}
         elif "2" in text:
             label = _pending_pick
             _pending_pick = None
-            return {
-                "type": "pick",
-                "label": label,
-                "box": "2",
-                "reply": f"Picking the {label.replace('_',' ')} 🟢 and dropping it in box 2 📦"
-            }
+            return {"type": "pick", "label": label, "box": "2",
+                    "reply": f"Picking the {label.replace('_',' ')} ⏳ in progress..."}
         else:
             return {"type": "chat", "reply": "Please specify box 1 or box 2 📦"}
 
@@ -92,12 +91,13 @@ def llm_chat_or_pick(user_text: str) -> dict:
         for label in VALID_LABELS:
             pattern = label.replace("_", "[ _]")
             if re.search(rf"\b{pattern}\b", text):
+                # Only ask for box if visible
+                if visible_objects and label not in visible_objects:
+                    return {"type": "chat", "reply": f"I cannot see {label.replace('_',' ')} in the picking tray 😕"}
+
                 _pending_pick = label
-                return {
-                    "type": "ask_box",
-                    "label": label,
-                    "reply": f"Okay, {label.replace('_',' ')} selected ✅. In which box do you want to drop it (1 or 2)?"
-                }
+                return {"type": "ask_box", "label": label,
+                        "reply": f"Okay, {label.replace('_',' ')} selected ✅. In which box do you want to drop it (1 or 2)?"}
 
         best_match = find_best_label(text)
         if best_match:
@@ -112,6 +112,9 @@ You are a helpful robot assistant. Only reply to casual chat.
 User message: "{user_text}"
 Respond only with text (no JSON needed).
 """
-    result = subprocess.run(["ollama", "run", "phi3", prompt], capture_output=True, text=True)
-    reply = result.stdout.strip() or "Hello! How can I help you?"
+    try:
+        result = subprocess.run(["ollama", "run", "phi3", prompt], capture_output=True, text=True)
+        reply = result.stdout.strip() or "Hello! How can I help you?"
+    except Exception:
+        reply = "Hello! How can I help you?"
     return {"type": "chat", "reply": reply}
