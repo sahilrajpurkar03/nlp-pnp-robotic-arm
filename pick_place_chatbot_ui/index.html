@@ -1,8 +1,8 @@
 <!DOCTYPE html>
 <html lang="en">
 <head>
-  <meta charset="UTF-8">
-  <meta name="viewport" content="width=device-width, initial-scale=1.0">
+  <meta charset="UTF-8" />
+  <meta name="viewport" content="width=device-width, initial-scale=1.0"/>
   <title>Robot Arm Chatbot</title>
   <style>
     body {
@@ -129,7 +129,7 @@
 
   <script>
     const messagesDiv = document.getElementById("messages");
-    let loadingMessage = null; // track spinner message
+    let loadingMessage = null; // track spinner message DOM element
 
     function addMessage(text, sender) {
       const msg = document.createElement("div");
@@ -140,7 +140,12 @@
       return msg;
     }
 
-    function addLoadingMessage(text="Working...") {
+    function addLoadingMessage(text = "Working...") {
+      // If there's already a loading message, remove it first
+      if (loadingMessage) {
+        removeLoadingMessage();
+      }
+
       const msg = document.createElement("div");
       msg.classList.add("message", "bot", "loading");
 
@@ -159,16 +164,19 @@
       loadingMessage = msg;
     }
 
-    function removeLoadingMessage(finalText=null) {
-      if (loadingMessage) {
-        if (finalText) {
-          loadingMessage.classList.remove("loading");
-          loadingMessage.innerHTML = finalText;
-        } else {
-          messagesDiv.removeChild(loadingMessage);
-        }
-        loadingMessage = null;
+    function removeLoadingMessage(finalText = null) {
+      if (!loadingMessage) return;
+
+      if (finalText) {
+        // replace spinner block with finalText (keep message & bot classes)
+        loadingMessage.classList.remove("loading");
+        // Replace innerHTML with plain text content (no spinner)
+        loadingMessage.innerHTML = finalText;
+      } else {
+        messagesDiv.removeChild(loadingMessage);
       }
+      loadingMessage = null;
+      messagesDiv.scrollTop = messagesDiv.scrollHeight;
     }
 
     async function sendMessage() {
@@ -187,10 +195,11 @@
         });
         const data = await res.json();
 
-        if (data.reply.includes("⏳")) {
-          // show spinner instead of static ⏳
-          addLoadingMessage(data.reply.replace("⏳", "").trim());
-        } else {
+        if (data.reply && data.reply.includes("⏳")) {
+          // show spinner instead of static ⏳ text
+          const label = data.reply.replace("⏳", "").trim();
+          addLoadingMessage(label);
+        } else if (data.reply) {
           addMessage(data.reply, "bot");
         }
       } catch (err) {
@@ -211,13 +220,21 @@
     ws.onmessage = function(event) {
       try {
         let data = JSON.parse(event.data);
-        if (data.reply) {
-          if (loadingMessage) {
-            // replace spinner with success text
-            removeLoadingMessage(data.reply);
-          } else {
-            addMessage(data.reply, "bot");
-          }
+        if (!data.reply) return;
+
+        // If reply contains the spinner marker, show spinner (for subsequent queued items)
+        if (data.reply.includes("⏳")) {
+          const label = data.reply.replace("⏳", "").trim();
+          addLoadingMessage(label);
+          return;
+        }
+
+        // Otherwise it's a normal message (e.g. "red cube dropped in box 1 ✅")
+        if (loadingMessage) {
+          // replace spinner with final success text
+          removeLoadingMessage(data.reply);
+        } else {
+          addMessage(data.reply, "bot");
         }
       } catch (e) {
         console.error("WebSocket message error:", e);

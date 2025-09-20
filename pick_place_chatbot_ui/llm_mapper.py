@@ -22,7 +22,7 @@ LABEL_SYNONYMS = {
 }
 
 _last_suggestion = None      # for typo confirmation
-_pending_pick = None         # stores label until box chosen
+_pending_pick = None         # stores label(s) until box chosen
 
 
 def find_best_label(user_text: str) -> str | None:
@@ -45,13 +45,46 @@ def find_best_label(user_text: str) -> str | None:
     return best_match if best_ratio > 0.6 else None
 
 
+def extract_labels(user_text: str) -> list[str]:
+    """Find all valid labels mentioned in user text."""
+    labels = []
+    text = user_text.lower()
+
+    for label in VALID_LABELS:
+        pattern = label.replace("_", "[ _]")
+        if re.search(rf"\b{pattern}\b", text):
+            labels.append(label)
+
+    if not labels:
+        best = find_best_label(text)
+        if best:
+            labels.append(best)
+
+    return labels
+
+
 def llm_chat_or_pick(user_text: str, visible_objects: set[str] | None = None) -> dict:
     """
     Main LLM + pick handling function.
-    visible_objects: current set of detected objects from YOLO
+    Supports multiple items in a queue.
     """
     global _last_suggestion, _pending_pick
     text = user_text.lower().strip()
+
+    # --- Handle box choice for queued items ---
+    if isinstance(_pending_pick, list) and _pending_pick:
+        if "1" in text or "2" in text:
+            box = "1" if "1" in text else "2"
+            queue = _pending_pick
+            _pending_pick = None
+            return {
+                "type": "pick_queue",
+                "labels": queue,
+                "box": box,
+                "reply": f"Okay, {', '.join(l.replace('_',' ') for l in queue)} selected ✅. Dropping in box {box}."
+            }
+        else:
+            return {"type": "chat", "reply": "Please specify box 1 or box 2 📦"}
 
     # --- Handle confirmation (typos) ---
     if _last_suggestion:
@@ -59,45 +92,29 @@ def llm_chat_or_pick(user_text: str, visible_objects: set[str] | None = None) ->
             label = _last_suggestion
             _last_suggestion = None
 
-            # Only proceed if object is visible
             if visible_objects and label not in visible_objects:
                 return {"type": "chat", "reply": f"I cannot see {label.replace('_',' ')} in the picking tray 😕"}
 
-            _pending_pick = label
-            return {"type": "ask_box", "label": label,
+            _pending_pick = [label]
+            return {"type": "ask_box", "labels": [label],
                     "reply": f"Okay, {label.replace('_',' ')} selected ✅. In which box do you want to drop it (1 or 2)?"}
 
         elif text in ["no", "n", "nope"]:
             _last_suggestion = None
             return {"type": "chat", "reply": "Alright, cancelled ❌. What should I grab instead?"}
 
-    # --- Handle box choice ---
-    if _pending_pick:
-        if "1" in text:
-            label = _pending_pick
-            _pending_pick = None
-            return {"type": "pick", "label": label, "box": "1",
-                    "reply": f"Picking the {label.replace('_',' ')} ⏳ in progress..."}
-        elif "2" in text:
-            label = _pending_pick
-            _pending_pick = None
-            return {"type": "pick", "label": label, "box": "2",
-                    "reply": f"Picking the {label.replace('_',' ')} ⏳ in progress..."}
-        else:
-            return {"type": "chat", "reply": "Please specify box 1 or box 2 📦"}
-
     # --- Detect pick intent ---
     if any(re.search(rf"\b{syn}\b", text) for syn in PICK_SYNONYMS):
-        for label in VALID_LABELS:
-            pattern = label.replace("_", "[ _]")
-            if re.search(rf"\b{pattern}\b", text):
-                # Only ask for box if visible
-                if visible_objects and label not in visible_objects:
-                    return {"type": "chat", "reply": f"I cannot see {label.replace('_',' ')} in the picking tray 😕"}
+        labels = extract_labels(text)
+        if labels:
+            if visible_objects:
+                labels = [l for l in labels if l in visible_objects]
+                if not labels:
+                    return {"type": "chat", "reply": "I cannot see those items in the picking tray 😕"}
 
-                _pending_pick = label
-                return {"type": "ask_box", "label": label,
-                        "reply": f"Okay, {label.replace('_',' ')} selected ✅. In which box do you want to drop it (1 or 2)?"}
+            _pending_pick = labels
+            return {"type": "ask_box", "labels": labels,
+                    "reply": f"Okay, {', '.join(l.replace('_',' ') for l in labels)} selected ✅. In which box do you want to drop them (1 or 2)?"}
 
         best_match = find_best_label(text)
         if best_match:

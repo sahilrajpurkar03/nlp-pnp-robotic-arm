@@ -1,4 +1,3 @@
-# cmd_bridge.py
 import threading
 import rclpy
 from rclpy.node import Node
@@ -49,6 +48,16 @@ class CommandPublisher(Node):
         self.pub.publish(msg)
         self.get_logger().info(f"Published /target_class_cmd: {msg.data}")
 
+    def _broadcast_json(self, payload: dict):
+        """Send JSON to connected websockets (best-effort)."""
+        for ws in list(self.websocket_clients):
+            try:
+                import asyncio
+                asyncio.run(ws.send_json(payload))
+            except Exception as e:
+                self.get_logger().warn(f"WebSocket send failed: {e}")
+                self.websocket_clients.discard(ws)
+
     def status_callback(self, msg: String):
         new_status = msg.data.strip().upper()
         if self.current_status != new_status:
@@ -57,21 +66,28 @@ class CommandPublisher(Node):
 
             # When robot goes back to IDLE, confirm success
             if self.current_status == "IDLE" and self.last_pick:
-                label = self.last_pick["label"].replace("_", " ")
-                box = self.last_pick["box"]
-                success_msg = f"{label} dropped in box {box} ✅"
-                self.get_logger().info(success_msg)
+                if "active" in self.last_pick:
+                    label = self.last_pick["active"].replace("_", " ")
+                    box = self.last_pick["box"]
+                    success_msg = f"{label} dropped in box {box} ✅"
+                    self.get_logger().info(success_msg)
 
-                # Push success message to all websocket clients
-                for ws in list(self.websocket_clients):
-                    try:
-                        import asyncio
-                        asyncio.run(ws.send_json({"reply": success_msg}))
-                    except Exception as e:
-                        self.get_logger().warn(f"WebSocket send failed: {e}")
-                        self.websocket_clients.discard(ws)
+                    # Push success message to all websocket clients
+                    self._broadcast_json({"reply": success_msg})
 
-                self.last_pick = None
+                    # Continue queue if more items left
+                    if self.last_pick["queue"]:
+                        next_label = self.last_pick["queue"].pop(0)
+                        # Publish next item to ROS
+                        self.publish_label(next_label, box)
+                        self.last_pick["active"] = next_label
+
+                        # Send the picking-in-progress message for next item via WS
+                        picking_msg = f"Picking the {next_label.replace('_',' ')} ⏳ in progress..."
+                        self._broadcast_json({"reply": picking_msg})
+                    else:
+                        # All done
+                        self.last_pick = None
 
     def yolo_callback(self, msg):
         """Update latest detected objects from YOLO."""
@@ -108,16 +124,27 @@ def chat(req: ChatRequest):
     data = llm_chat_or_pick(req.text, visible_objects=ros_node.latest_detections)
 
     if data.get("type") in ["ask_box", "pick"]:
-        label = data["label"]
+        label = data["label"] if "label" in data else None
 
         # Direct pick if box already specified
         if data.get("type") == "pick":
             ros_node.publish_label(label, data.get("box"))
             ros_node.last_pick = {"label": label, "box": data.get("box")}
         elif data.get("type") == "ask_box":
-            ros_node.last_pick = {"label": label, "awaiting_box": True}
+            # store queue awaiting box; handler will set last_pick when box arrives
+            ros_node.last_pick = {"queue": data["labels"], "awaiting_box": True}
 
         return {"ok": True, "reply": data["reply"]}
+
+    # pick_queue: labels + box provided (multiple items)
+    if data.get("type") == "pick_queue":
+        # set queue and immediately dispatch the first item, return picking spinner for first item
+        ros_node.last_pick = {"queue": data["labels"], "box": data["box"]}
+        first = ros_node.last_pick["queue"].pop(0)
+        ros_node.publish_label(first, data["box"])
+        ros_node.last_pick["active"] = first
+        # Return spinner message for the first item (HTTP response)
+        return {"ok": True, "reply": f"Picking the {first.replace('_',' ')} ⏳ in progress..."}
 
     return {"ok": True, "reply": data["reply"]}
 
@@ -129,7 +156,7 @@ async def websocket_endpoint(websocket: WebSocket):
         ros_node.websocket_clients.add(websocket)
     try:
         while True:
-            await websocket.receive_text()  # keep alive
+            await websocket.receive_text()  # keep alive / noop
     except WebSocketDisconnect:
         if ros_node:
             ros_node.websocket_clients.discard(websocket)

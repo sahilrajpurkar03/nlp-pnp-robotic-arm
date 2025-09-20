@@ -8,6 +8,7 @@
 #include <thread>
 #include <cmath>
 #include <std_msgs/msg/float64_multi_array.hpp>
+#include <std_msgs/msg/float64.hpp>
 #include <std_msgs/msg/string.hpp>  // <-- Added to fix compilation
 #include <mutex>
 
@@ -306,13 +307,13 @@ bool executePickAndPlace(moveit::planning_interface::MoveGroupInterface &move_gr
     if (!rotateGripperYaw(move_group, yaw)) { current_status = "ERROR"; publishStatus(status_pub, current_status); return false; }
     rclcpp::sleep_for(std::chrono::seconds(delay));
 
-    if (!moveDownZ(move_group, 0.233)) { current_status = "ERROR"; publishStatus(status_pub, current_status); return false; }
+    if (!moveDownZ(move_group, 0.26)) { current_status = "ERROR"; publishStatus(status_pub, current_status); return false; }
     rclcpp::sleep_for(std::chrono::seconds(delay));
 
     if (!closeGripper(gripper_group)) { current_status = "ERROR"; publishStatus(status_pub, current_status); return false; }
     rclcpp::sleep_for(std::chrono::seconds(delay));
 
-    if (!moveUpZ(move_group, 0.233)) { current_status = "ERROR"; publishStatus(status_pub, current_status); return false; }
+    if (!moveUpZ(move_group, 0.26)) { current_status = "ERROR"; publishStatus(status_pub, current_status); return false; }
     rclcpp::sleep_for(std::chrono::seconds(delay));
 
     double box_x, box_y;
@@ -381,6 +382,11 @@ int main(int argc, char **argv)
     // ---- Publisher ----
     auto status_pub = node->create_publisher<std_msgs::msg::String>(
         "/pick_place_status", 10);
+
+
+    // Publisher for left/right finger effort
+    auto gripper_effort_pub = node->create_publisher<std_msgs::msg::Float64>(
+        "/gripper_joint/command", 10);
 
     // ---- Current robot status ----
     std::string current_status = "IDLE";  // default status
