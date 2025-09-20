@@ -1,3 +1,4 @@
+#llm_mapper.py
 import re
 import difflib
 import subprocess
@@ -71,6 +72,20 @@ def llm_chat_or_pick(user_text: str, visible_objects: set[str] | None = None) ->
     global _last_suggestion, _pending_pick
     text = user_text.lower().strip()
 
+    # --- Handle 'revel' request ---
+    if re.search(r"\brevel (items|assets|objects)\b", text):
+        revel_labels = ["measuring_tape", "chisel", "knife", "allen_key"]
+
+        # If visible_objects is provided, filter the revel labels accordingly
+        if visible_objects:
+            revel_labels = [l for l in revel_labels if l in visible_objects]
+            if not revel_labels:
+                return {"type": "chat", "reply": "I cannot see any of the revel items in the picking tray 😕"}
+
+        _pending_pick = revel_labels
+        return {"type": "ask_box", "labels": revel_labels,
+                "reply": f"Okay, {', '.join(l.replace('_',' ') for l in revel_labels)} selected ✅. In which box do you want to drop them (1 or 2)?"}
+
     # --- Handle box choice for queued items ---
     if isinstance(_pending_pick, list) and _pending_pick:
         if "1" in text or "2" in text:
@@ -135,3 +150,4 @@ Respond only with text (no JSON needed).
     except Exception:
         reply = "Hello! How can I help you?"
     return {"type": "chat", "reply": reply}
+
